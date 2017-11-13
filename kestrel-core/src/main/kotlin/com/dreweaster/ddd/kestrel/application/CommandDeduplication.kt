@@ -43,7 +43,7 @@ class TimeRestrictedCommandDeduplicationStrategy(private val causationIds: Set<C
     }
 }
 
-class TwentyFourHourWindowCommandDeduplicationStrategyFactory : CommandDeduplicationStrategyFactory {
+object TwentyFourHourWindowCommandDeduplication : CommandDeduplicationStrategyFactory {
 
     override fun newBuilder(): CommandDeduplicationStrategyBuilder {
         return TimeRestrictedCommandDeduplicationStrategy.Builder(Instant.now().minus(Duration.ofHours(24)))

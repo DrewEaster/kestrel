@@ -101,3 +101,65 @@ class ReportingContext<C : DomainCommand, E : DomainEvent, S: AggregateState>(
         probes.forEach { it.finishedHandling(result) }
     }
 }
+
+object ConsoleReporter : DomainModelReporter {
+
+    class ConsoleProbe<C : DomainCommand, E : DomainEvent, S : AggregateState> : CommandHandlingProbe<C,E,S> {
+
+        override fun startedHandling(command: CommandEnvelope<C>) {
+            println("Started handling: $command")
+        }
+
+        override fun startedRecoveringAggregate() {
+
+        }
+
+        override fun finishedRecoveringAggregate(previousEvents: List<E>, version: Long, state: S?) {
+
+        }
+
+        override fun finishedRecoveringAggregate(unexpectedException: Throwable) {
+
+        }
+
+        override fun startedApplyingCommand() {
+
+        }
+
+        override fun startedApplyingCommand(state: S) {
+
+        }
+
+        override fun commandApplicationAccepted(events: List<E>, deduplicated: Boolean) {
+
+        }
+
+        override fun commandApplicationRejected(rejection: Throwable, deduplicated: Boolean) {
+
+        }
+
+        override fun commandApplicationFailed(unexpectedException: Throwable) {
+
+        }
+
+        override fun startedPersistingEvents(events: List<E>, expectedSequenceNumber: Long) {
+
+        }
+
+        override fun finishedPersistingEvents(persistedEvents: List<PersistedEvent<E>>) {
+
+        }
+
+        override fun finishedPersistingEvents(unexpectedException: Throwable) {
+
+        }
+
+        override fun finishedHandling(result: CommandHandlingResult<E>) {
+
+        }
+    }
+
+    override fun <C : DomainCommand, E : DomainEvent, S : AggregateState> supports(aggregateType: Aggregate<C, E, S>) = true
+
+    override fun <C : DomainCommand, E : DomainEvent, S : AggregateState> createProbe(aggregateType: Aggregate<C, E, S>, aggregateId: AggregateId) = ConsoleProbe<C,E,S>()
+}

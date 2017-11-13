@@ -10,7 +10,7 @@ class EventSourcedDomainModel(
         private val backend: Backend,
         private val commandDeduplicationStrategyFactory: CommandDeduplicationStrategyFactory) : DomainModel {
 
-    var reporters: List<DomainModelReporter> = emptyList()
+    private var reporters: List<DomainModelReporter> = emptyList()
 
     override fun addReporter(reporter: DomainModelReporter) {
         reporters += reporter

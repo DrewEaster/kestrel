@@ -6,8 +6,8 @@ import kotlinx.coroutines.experimental.runBlocking
 
 fun main(args: Array<String>) {
 
-    val backend = InMemoryBackend()
-    val domainModel = EventSourcedDomainModel(backend, TwentyFourHourWindowCommandDeduplicationStrategyFactory())
+    val domainModel = EventSourcedDomainModel(InMemoryBackend(), TwentyFourHourWindowCommandDeduplication)
+    domainModel.addReporter(ConsoleReporter)
 
     val aggregateRoot = domainModel.aggregateRootOf(User)
 
