@@ -9,6 +9,7 @@
     <modules>
         <module>kestrel-core</module>
         <module>kestrel-example</module>
+        <module>kestrel-inmemory-backend</module>
     </modules>
     <packaging>pom</packaging>
 

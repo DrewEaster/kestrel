@@ -9,17 +9,12 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>kestrel-example</artifactId>
+    <artifactId>kestrel-inmemory-backend</artifactId>
 
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>kestrel-core</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>kestrel-inmemory-backend</artifactId>
             <version>${project.version}</version>
         </dependency>
     </dependencies>

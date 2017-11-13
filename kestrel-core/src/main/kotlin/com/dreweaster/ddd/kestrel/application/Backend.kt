@@ -34,7 +34,7 @@ interface Backend {
             causationId: CausationId,
             rawEvents: List<E>,
             expectedSequenceNumber: Long,
-            correlationId: Optional<CorrelationId> = Optional.empty()): List<PersistedEvent<E>>
+            correlationId: CorrelationId? = null): List<PersistedEvent<E>>
 }
 
 object OptimisticConcurrencyException : RuntimeException()
