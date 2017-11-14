@@ -39,7 +39,9 @@ class EventSourcedDomainModel(
             val result = try {
                 val aggregate = recoverAggregate()
 
-                return when {
+                reportingContext.startedApplyingCommand()
+
+                when {
                     aggregate.isNew -> handleEdenCommand(aggregate, commandEnvelope)
                     else -> handleCommand(aggregate, commandEnvelope)
                 }
@@ -54,8 +56,6 @@ class EventSourcedDomainModel(
         }
 
         private suspend fun handleEdenCommand(aggregate: RecoveredAggregate<E,S>, commandEnvelope: CommandEnvelope<C>): CommandHandlingResult<E> {
-            reportingContext.startedApplyingCommand()
-
             if(!aggregateType.blueprint.edenCommandHandler.canHandle(commandEnvelope.command)) {
                 val rejectionResult = RejectionResult<E>(UnsupportedCommandInEdenBehaviour)
                 reportingContext.commandApplicationRejected(rejectionResult.error, rejectionResult.deduplicated)
@@ -71,8 +71,6 @@ class EventSourcedDomainModel(
         }
 
         private suspend fun handleCommand(aggregate: RecoveredAggregate<E, S>, commandEnvelope: CommandEnvelope<C>): CommandHandlingResult<E> {
-            reportingContext.startedApplyingCommand(aggregate.state!!)
-
             if(aggregate.hasHandledCommandBefore(commandEnvelope.commandId)) {
                 // TODO: If command was handled before but was rejected would be good to return the same rejection here
                 // TODO: Would require storing special RejectionEvents in the aggregate's event history
@@ -88,7 +86,7 @@ class EventSourcedDomainModel(
                     return rejectionResult
                 }
 
-                if(!aggregateType.blueprint.commandHandler.canHandle(aggregate.state, commandEnvelope.command)) {
+                if(!aggregateType.blueprint.commandHandler.canHandle(aggregate.state!!, commandEnvelope.command)) {
                     val rejectionResult = RejectionResult<E>(UnsupportedCommandInCurrentBehaviour)
                     reportingContext.commandApplicationRejected(rejectionResult.error, rejectionResult.deduplicated)
                     return rejectionResult

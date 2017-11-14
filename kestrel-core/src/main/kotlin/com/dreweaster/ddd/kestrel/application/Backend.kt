@@ -81,9 +81,9 @@ interface EventPayloadMapper {
     fun <E : DomainEvent> serialiseEvent(event: E): PayloadSerialisationResult
 }
 
-data class PayloadSerialisationResult(val payload: String, val contentType: SerialisationContentType, val version: Optional<Int>)
+data class PayloadSerialisationResult(val payload: String, val contentType: SerialisationContentType, val version: Int)
 
-class MappingException : RuntimeException {
+open class MappingException : RuntimeException {
 
     constructor(message: String) : super(message)
 

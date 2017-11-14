@@ -25,8 +25,6 @@ interface CommandHandlingProbe<C : DomainCommand, E : DomainEvent, S: AggregateS
 
     fun startedApplyingCommand()
 
-    fun startedApplyingCommand(state: S)
-
     fun commandApplicationAccepted(events: List<E>, deduplicated: Boolean = false)
 
     fun commandApplicationRejected(rejection: Throwable, deduplicated: Boolean = false)
@@ -69,10 +67,6 @@ class ReportingContext<C : DomainCommand, E : DomainEvent, S: AggregateState>(
         probes.forEach { it.startedApplyingCommand() }
     }
 
-    override fun startedApplyingCommand(state: S) {
-        probes.forEach { it.startedApplyingCommand(state) }
-    }
-
     override fun commandApplicationAccepted(events: List<E>, deduplicated: Boolean) {
         probes.forEach { it.commandApplicationAccepted(events, deduplicated) }
     }
@@ -111,51 +105,47 @@ object ConsoleReporter : DomainModelReporter {
         }
 
         override fun startedRecoveringAggregate() {
-
+            println("Started recovering aggregate")
         }
 
         override fun finishedRecoveringAggregate(previousEvents: List<E>, version: Long, state: S?) {
-
+            println("Successfully recovered aggregate: version = $version, events = $previousEvents, currentState = $state")
         }
 
         override fun finishedRecoveringAggregate(unexpectedException: Throwable) {
-
+            println("Failed to recover aggregate: $unexpectedException")
         }
 
         override fun startedApplyingCommand() {
-
-        }
-
-        override fun startedApplyingCommand(state: S) {
-
+            println("Started applying command")
         }
 
         override fun commandApplicationAccepted(events: List<E>, deduplicated: Boolean) {
-
+            println("Successfully applied command: generatedEvents = $events, deduplicated = $deduplicated")
         }
 
         override fun commandApplicationRejected(rejection: Throwable, deduplicated: Boolean) {
-
+            println("Command was rejected: rejection = $rejection, deduplicated = $deduplicated")
         }
 
         override fun commandApplicationFailed(unexpectedException: Throwable) {
-
+            println("Command application failed: error = $unexpectedException")
         }
 
         override fun startedPersistingEvents(events: List<E>, expectedSequenceNumber: Long) {
-
+            println("Started persisting generated events: expectedVersion = $expectedSequenceNumber, events = $events")
         }
 
         override fun finishedPersistingEvents(persistedEvents: List<PersistedEvent<E>>) {
-
+            println("Successfully persisted events: $persistedEvents")
         }
 
         override fun finishedPersistingEvents(unexpectedException: Throwable) {
-
+            println("Failed to persist events: $unexpectedException")
         }
 
         override fun finishedHandling(result: CommandHandlingResult<E>) {
-
+            println("Finished command handling with result: $result")
         }
     }
 

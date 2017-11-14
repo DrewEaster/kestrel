@@ -17,14 +17,6 @@ fun main(args: Array<String>) {
         aggregateRoot(IncrementFailedLoginAttempts)
         aggregateRoot(IncrementFailedLoginAttempts)
         aggregateRoot(IncrementFailedLoginAttempts)
-
-        val result = aggregateRoot(ChangePassword("newPassword"))
-
-        when(result) {
-            is SuccessResult -> println("Success: ${result.generatedEvents}, deduplicated: ${result.deduplicated}")
-            is RejectionResult -> println("Rejection: ${result.error}, deduplicated: ${result.deduplicated}")
-            is ConcurrentModificationResult -> println("Concurrent modification")
-            is UnexpectedExceptionResult -> println("Unexpected exception: ${result.ex}")
-        }
+        aggregateRoot(ChangePassword("newPassword"))
     }
 }
