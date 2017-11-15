@@ -12,32 +12,21 @@ import java.io.IOException
 
 interface JsonEventMappingConfiguration<E : DomainEvent> {
 
-    fun migrateFormat(migration: ((JsonNode) -> JsonNode)?): JsonEventMappingConfiguration<E>
+    fun migrateFormat(migration: ((JsonNode) -> JsonNode)): JsonEventMappingConfiguration<E>
 
-    fun migrateClassName(className: String?): JsonEventMappingConfiguration<E>
+    fun migrateClassName(className: String): JsonEventMappingConfiguration<E>
 
-    fun mappingFunctions(serialiseFunction: ((E, ObjectNode) ->  JsonNode)?, deserialiseFunction: ((JsonNode) -> E)?)
+    fun mappingFunctions(serialiseFunction: ((E, ObjectNode) ->  JsonNode), deserialiseFunction: ((JsonNode) -> E))
 }
 
 interface JsonEventMappingConfigurationFactory<E : DomainEvent> {
 
-    fun create(initialEventClassName: String?): JsonEventMappingConfiguration<E>
+    fun create(initialEventClassName: String): JsonEventMappingConfiguration<E>
 }
 
 interface JsonEventMappingConfigurer<E : DomainEvent> {
 
     fun configure(configurationFactory: JsonEventMappingConfigurationFactory<E>)
-}
-
-class InvalidMappingConfigurationException(val configurationError: ConfigurationError) : MappingException("Invalid mapper configuration") {
-
-    enum class ConfigurationError {
-        SERIALISE_FUNCTION,
-        DESERIALISE_FUNCTION,
-        INITIAL_CLASS_NAME,
-        MIGRATION_CLASS_NAME,
-        MIGRATION_FUNCTION
-    }
 }
 
 class UnparseableJsonPayloadException(cause: Throwable, serialisedPayload: String) : MappingException("Could not parse JSON event payload: " + serialisedPayload, cause)
@@ -47,10 +36,9 @@ class MissingDeserialiserException(serialisedEventType: String, serialisedEventV
 
 class MissingSerialiserException(eventType: String) : MappingException("No serialiser found for event_type = '$eventType'")
 
-
 class JsonEventPayloadMapper(
         private val objectMapper: ObjectMapper,
-        private val eventMappers: List<JsonEventMappingConfigurer<in DomainEvent>>) : EventPayloadMapper {
+        private val eventMappers: List<JsonEventMappingConfigurer<DomainEvent>>) : EventPayloadMapper {
 
     private var eventDeserialisers: Map<Pair<String, Int>, (String) -> DomainEvent> = emptyMap()
     private var eventSerialisers: Map<String, (DomainEvent) -> Pair<String, Int>> = emptyMap()
@@ -106,21 +94,13 @@ class JsonEventPayloadMapper(
 
         private var deserialiseFunction: ((JsonNode) -> E)? = null
 
-        override fun migrateFormat(migration: ((JsonNode) -> JsonNode)?): JsonEventMappingConfiguration<E> {
-            if (migration == null) {
-                throw InvalidMappingConfigurationException(InvalidMappingConfigurationException.ConfigurationError.MIGRATION_FUNCTION)
-            }
-
+        override fun migrateFormat(migration: ((JsonNode) -> JsonNode)): JsonEventMappingConfiguration<E> {
             migrations += FormatMigration(currentClassName!!, currentVersion, currentVersion + 1, migration)
             currentVersion += 1
             return this
         }
 
-        override fun migrateClassName(className: String?): JsonEventMappingConfiguration<E> {
-            if (className == null) {
-                throw InvalidMappingConfigurationException(InvalidMappingConfigurationException.ConfigurationError.MIGRATION_CLASS_NAME)
-            }
-
+        override fun migrateClassName(className: String): JsonEventMappingConfiguration<E> {
             val migration = ClassNameMigration(currentClassName!!, className, currentVersion, currentVersion + 1)
             migrations += migration
             currentClassName = migration.toClassName
@@ -128,23 +108,12 @@ class JsonEventPayloadMapper(
             return this
         }
 
-        override fun mappingFunctions(serialiseFunction: ((E, ObjectNode) -> JsonNode)?, deserialiseFunction: ((JsonNode) -> E)?) {
-            if (serialiseFunction == null) {
-                throw InvalidMappingConfigurationException(InvalidMappingConfigurationException.ConfigurationError.SERIALISE_FUNCTION)
-            }
-
-            if (deserialiseFunction == null) {
-                throw InvalidMappingConfigurationException(InvalidMappingConfigurationException.ConfigurationError.DESERIALISE_FUNCTION)
-            }
-
+        override fun mappingFunctions(serialiseFunction: ((E, ObjectNode) -> JsonNode), deserialiseFunction: ((JsonNode) -> E)) {
             this.serialiseFunction = serialiseFunction
             this.deserialiseFunction = deserialiseFunction
         }
 
-        override fun create(initialEventClassName: String?): JsonEventMappingConfiguration<E> {
-            if (initialEventClassName == null) {
-                throw InvalidMappingConfigurationException(InvalidMappingConfigurationException.ConfigurationError.INITIAL_CLASS_NAME)
-            }
+        override fun create(initialEventClassName: String): JsonEventMappingConfiguration<E> {
             currentClassName = initialEventClassName
             currentVersion = 1
             return this
