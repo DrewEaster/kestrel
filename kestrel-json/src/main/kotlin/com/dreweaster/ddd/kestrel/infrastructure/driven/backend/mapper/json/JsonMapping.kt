@@ -123,8 +123,8 @@ class JsonEventPayloadMapper(
 
             val migration = ClassNameMigration(currentClassName!!, className, currentVersion, currentVersion + 1)
             migrations += migration
-            currentClassName = migration.toClassName()
-            currentVersion = migration.toVersion()
+            currentClassName = migration.toClassName
+            currentVersion = migration.toVersion
             return this
         }
 
@@ -190,9 +190,9 @@ class JsonEventPayloadMapper(
                 deserialisers: Map<Pair<String, Int>, (String) -> DomainEvent>): Map<Pair<String, Int>, (String) -> DomainEvent> {
 
             val migration = migrations.first()
-            val className = migration.fromClassName()
-            val version = migration.fromVersion()
-            val migrationFunctions = migrations.map { it.migrationFunction() }
+            val className = migration.fromClassName
+            val version = migration.fromVersion
+            val migrationFunctions = migrations.map { it.migrationFunction }
             val combinedMigrationFunction = migrationFunctions.drop(1).fold(migrationFunctions.first()) { combined, f -> f.compose(combined) }
 
             val deserialiser = { serialisedEvent:String ->
@@ -211,76 +211,34 @@ class JsonEventPayloadMapper(
                 throw UnparseableJsonPayloadException(ex, serialisedEvent)
             }
         }
-    }
 
-    infix fun <IP, R, P1> ((IP) -> R).compose(f: (P1) -> IP): (P1) -> R {
-        return { p1: P1 -> this(f(p1)) }
+        infix fun <IP, R, P1> ((IP) -> R).compose(f: (P1) -> IP): (P1) -> R {
+            return { p1: P1 -> this(f(p1)) }
+        }
     }
 
     interface Migration {
-
-        fun fromClassName(): String
-
-        fun toClassName(): String
-
-        fun fromVersion(): Int
-
-        fun toVersion(): Int
-
-        fun migrationFunction(): (JsonNode) -> JsonNode
+        val fromClassName: String
+        val toClassName: String
+        val fromVersion: Int
+        val toVersion: Int
+        val migrationFunction: (JsonNode) -> JsonNode
     }
 
-    class FormatMigration(
-            private val className: String,
-            private val fromVersion: Int,
-            private val toVersion: Int,
-            private val migrationFunction: (JsonNode) -> JsonNode) : Migration {
+    data class FormatMigration(
+             private val className: String,
+             override val fromVersion: Int,
+             override val toVersion: Int,
+             override val migrationFunction: (JsonNode) -> JsonNode) : Migration {
 
-        override fun fromClassName(): String {
-            return className
-        }
-
-        override fun toClassName(): String {
-            return className
-        }
-
-        override fun fromVersion(): Int {
-            return fromVersion
-        }
-
-        override fun toVersion(): Int {
-            return toVersion
-        }
-
-        override fun migrationFunction(): (JsonNode) -> JsonNode {
-            return migrationFunction
-        }
+        override val fromClassName = className
+        override val toClassName = className
     }
 
     class ClassNameMigration(
-            private val fromClassName: String,
-            private val toClassName: String,
-            private val fromVersion: Int,
-            private val toVersion: Int) : Migration {
-
-        override fun fromClassName(): String {
-            return fromClassName
-        }
-
-        override fun toClassName(): String {
-            return toClassName
-        }
-
-        override fun fromVersion(): Int {
-            return fromVersion
-        }
-
-        override fun toVersion(): Int {
-            return toVersion
-        }
-
-        override fun migrationFunction(): (JsonNode) -> JsonNode {
-            return { jsonNode -> jsonNode }
-        }
-    }
+            override val fromClassName: String,
+            override val toClassName: String,
+            override val fromVersion: Int,
+            override val toVersion: Int,
+            override val migrationFunction: (JsonNode) -> JsonNode =  { jsonNode -> jsonNode }) : Migration
 }

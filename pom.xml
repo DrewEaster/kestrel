@@ -70,6 +70,12 @@
                 <artifactId>vavr-kotlin</artifactId>
                 <version>${vavr.version}</version>
             </dependency>
+            <dependency>
+                <groupId>io.kotlintest</groupId>
+                <artifactId>kotlintest</artifactId>
+                <version>1.1.2</version>
+                <scope>test</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -99,6 +105,10 @@
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
             <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.kotlintest</groupId>
+            <artifactId>kotlintest</artifactId>
         </dependency>
         <dependency>
             <groupId>io.vavr</groupId>
