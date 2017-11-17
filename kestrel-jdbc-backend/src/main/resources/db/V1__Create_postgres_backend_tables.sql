@@ -18,7 +18,6 @@ CREATE INDEX events_for_aggregate_instance_idx ON domain_event (aggregate_type, 
 CREATE TABLE aggregate_root (
   aggregate_id      VARCHAR(36)  NOT NULL,
   aggregate_type    VARCHAR(255) NOT NULL,
-  aggregate_version BIGINT       NOT NULL,
-  aggregate_state   JSONB        NULL,
+  aggregate_version BIGINT       NOT NULL
   PRIMARY KEY (aggregate_id, aggregate_type)
 );

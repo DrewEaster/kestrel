@@ -127,14 +127,19 @@ class PostgresBackend(
                         "expected_previous_aggregate_version" to expectedSequenceNumber
                 ))
 
+                if(saveAggregateRowsAffected == 0) throw OptimisticConcurrencyException
+
                 // Update synchronous read models
                 readModels.forEach {
                     if(it.aggregateType == aggregateType.blueprint.name) {
-                        it.update(persistedEvents, session, tx)
+                        it.update(
+                                aggregateType,
+                                aggregateId,
+                                persistedEvents,
+                                session,
+                                tx)
                     }
                 }
-
-                if(saveAggregateRowsAffected == 0) throw OptimisticConcurrencyException
             }
         }
 
