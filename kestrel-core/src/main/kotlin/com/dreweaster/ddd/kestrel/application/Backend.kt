@@ -10,7 +10,7 @@ import kotlin.reflect.KClass
 interface Backend {
 
     suspend fun <E : DomainEvent> loadEvents(
-            aggregate: Aggregate<*,E,*>,
+            aggregateType: Aggregate<*,E,*>,
             aggregateId: AggregateId): List<PersistedEvent<E>>
 
     suspend fun <E : DomainEvent> loadEvents(
@@ -20,7 +20,7 @@ interface Backend {
 
     suspend fun <E : DomainEvent> loadEventStream(
             tag: DomainEventTag,
-            afterOffset: Long?,
+            afterOffset: Long,
             batchSize: Int): List<StreamEvent>
 
     suspend fun <E : DomainEvent> loadEventStream(
@@ -53,7 +53,7 @@ data class PersistedEvent<E : DomainEvent>(
 
 data class StreamEvent(
         val offset: Long,
-        val id: String,
+        val id: EventId,
         val aggregateType: String,
         val aggregateId: AggregateId,
         val causationId: CausationId,
