@@ -132,12 +132,9 @@ class PostgresBackend(
                 // Update synchronous read models
                 readModels.forEach {
                     if(it.aggregateType == aggregateType.blueprint.name) {
-                        it.update(
-                                aggregateType,
-                                aggregateId,
-                                persistedEvents,
-                                session,
-                                tx)
+                        persistedEvents.forEach { e ->
+                            it.update(e, session, tx)
+                        }
                     }
                 }
             }
