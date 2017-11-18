@@ -131,7 +131,7 @@ class PostgresBackend(
 
                 // Update synchronous read models
                 readModels.forEach {
-                    if(it.aggregateType == aggregateType.blueprint.name) {
+                    if(it.aggregateType() == aggregateType) {
                         persistedEvents.forEach { e ->
                             it.update(e, session, tx)
                         }
@@ -155,7 +155,7 @@ class PostgresBackend(
                 aggregateId = AggregateId(row.string("aggregate_id")),
                 aggregateType = aggregateType,
                 causationId = CausationId(row.string("causation_id")),
-                correlationId = row.stringOrNull("correlationId")?.let { CorrelationId(it) },
+                correlationId = row.stringOrNull("correlation_id")?.let { CorrelationId(it) },
                 eventType = rawEvent::class as KClass<E>,
                 eventVersion = row.int("event_version"),
                 rawEvent = rawEvent,
@@ -180,7 +180,7 @@ class PostgresBackend(
                 aggregateId = AggregateId(row.string("aggregate_id")),
                 aggregateType = row.string("aggregate_type"),
                 causationId = CausationId(row.string("causation_id")),
-                correlationId = row.stringOrNull("correlationId")?.let { CorrelationId(it) },
+                correlationId = row.stringOrNull("correlation_id")?.let { CorrelationId(it) },
                 eventType = rawEvent::class.qualifiedName!!,
                 eventTag = tag,
                 payloadContentType = serialisedPayload.contentType,

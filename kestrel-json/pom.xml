@@ -12,7 +12,6 @@
     <artifactId>kestrel-json</artifactId>
 
     <properties>
-        <jackson.version>2.9.2</jackson.version>
         <maven.deploy.skip>false</maven.deploy.skip>
     </properties>
 
@@ -23,14 +22,14 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-core</artifactId>
-            <version>${jackson.version}</version>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.8.2</version>
         </dependency>
         <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>${jackson.version}</version>
+            <groupId>com.github.salomonbrys.kotson</groupId>
+            <artifactId>kotson</artifactId>
+            <version>2.5.0</version>
         </dependency>
     </dependencies>
 

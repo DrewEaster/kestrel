@@ -5,18 +5,18 @@ import com.dreweaster.ddd.kestrel.application.MappingException
 import com.dreweaster.ddd.kestrel.application.PayloadSerialisationResult
 import com.dreweaster.ddd.kestrel.application.SerialisationContentType
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.databind.node.ObjectNode
+import com.google.gson.Gson
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import java.io.IOException
 
 interface JsonEventMappingConfiguration<E : DomainEvent> {
 
-    fun migrateFormat(migration: ((JsonNode) -> JsonNode)): JsonEventMappingConfiguration<E>
+    fun migrateFormat(migration: ((JsonObject) -> JsonObject)): JsonEventMappingConfiguration<E>
 
     fun migrateClassName(className: String): JsonEventMappingConfiguration<E>
 
-    fun mappingFunctions(serialiseFunction: ((E, ObjectNode) ->  JsonNode), deserialiseFunction: ((JsonNode) -> E))
+    fun mappingFunctions(serialiseFunction: ((E) ->  JsonObject), deserialiseFunction: ((JsonObject) -> E))
 }
 
 interface JsonEventMappingConfigurationFactory<E : DomainEvent> {
@@ -37,8 +37,10 @@ class MissingDeserialiserException(serialisedEventType: String, serialisedEventV
 class MissingSerialiserException(eventType: String) : MappingException("No serialiser found for event_type = '$eventType'")
 
 class JsonEventPayloadMapper(
-        private val objectMapper: ObjectMapper,
+        private val gson: Gson,
         private val eventMappers: List<JsonEventMappingConfigurer<DomainEvent>>) : EventPayloadMapper {
+
+    private val jsonParser = JsonParser()
 
     private var eventDeserialisers: Map<Pair<String, Int>, (String) -> DomainEvent> = emptyMap()
     private var eventSerialisers: Map<String, (DomainEvent) -> Pair<String, Int>> = emptyMap()
@@ -90,11 +92,11 @@ class JsonEventPayloadMapper(
 
         private var migrations: List<Migration> = emptyList()
 
-        private var serialiseFunction: ((E, ObjectNode) -> JsonNode)? = null
+        private var serialiseFunction: ((E) -> JsonObject)? = null
 
-        private var deserialiseFunction: ((JsonNode) -> E)? = null
+        private var deserialiseFunction: ((JsonObject) -> E)? = null
 
-        override fun migrateFormat(migration: ((JsonNode) -> JsonNode)): JsonEventMappingConfiguration<E> {
+        override fun migrateFormat(migration: ((JsonObject) -> JsonObject)): JsonEventMappingConfiguration<E> {
             migrations += FormatMigration(currentClassName!!, currentVersion, currentVersion + 1, migration)
             currentVersion += 1
             return this
@@ -108,7 +110,7 @@ class JsonEventPayloadMapper(
             return this
         }
 
-        override fun mappingFunctions(serialiseFunction: ((E, ObjectNode) -> JsonNode), deserialiseFunction: ((JsonNode) -> E)) {
+        override fun mappingFunctions(serialiseFunction: ((E) -> JsonObject), deserialiseFunction: ((JsonObject) -> E)) {
             this.serialiseFunction = serialiseFunction
             this.deserialiseFunction = deserialiseFunction
         }
@@ -122,9 +124,8 @@ class JsonEventPayloadMapper(
         @Suppress("UNCHECKED_CAST")
         fun createSerialiser(): Pair<String, (DomainEvent) -> Pair<String, Int>> {
             return Pair(currentClassName!!) { domainEvent ->
-                val root = objectMapper.createObjectNode()
-                val serialisedJsonEvent = serialiseFunction!!(domainEvent as E, root)
-                Pair(serialisedJsonEvent.toString(), currentVersion)
+                val serialisedJsonEvent = serialiseFunction!!(domainEvent as E)
+                Pair(gson.toJson(serialisedJsonEvent), currentVersion)
             }
         }
 
@@ -173,9 +174,9 @@ class JsonEventPayloadMapper(
             return deserialisers + (Pair(className, version) to deserialiser)
         }
 
-        private fun stringToJsonNode(serialisedEvent: String): JsonNode {
+        private fun stringToJsonNode(serialisedEvent: String): JsonObject {
             try {
-                return objectMapper.readTree(serialisedEvent)
+                return jsonParser.parse(serialisedEvent).asJsonObject
             } catch (ex: IOException) {
                 throw UnparseableJsonPayloadException(ex, serialisedEvent)
             }
@@ -191,14 +192,14 @@ class JsonEventPayloadMapper(
         val toClassName: String
         val fromVersion: Int
         val toVersion: Int
-        val migrationFunction: (JsonNode) -> JsonNode
+        val migrationFunction: (JsonObject) -> JsonObject
     }
 
     data class FormatMigration(
              private val className: String,
              override val fromVersion: Int,
              override val toVersion: Int,
-             override val migrationFunction: (JsonNode) -> JsonNode) : Migration {
+             override val migrationFunction: (JsonObject) -> JsonObject) : Migration {
 
         override val fromClassName = className
         override val toClassName = className
@@ -209,5 +210,5 @@ class JsonEventPayloadMapper(
             override val toClassName: String,
             override val fromVersion: Int,
             override val toVersion: Int,
-            override val migrationFunction: (JsonNode) -> JsonNode =  { jsonNode -> jsonNode }) : Migration
+            override val migrationFunction: (JsonObject) -> JsonObject =  { jsonNode -> jsonNode }) : Migration
 }

@@ -35,7 +35,7 @@ class InMemoryBackend : Backend {
 
     suspend override fun <E : DomainEvent> loadEventStream(
             tag: DomainEventTag,
-            afterOffset: Long?,
+            afterOffset: Long,
             batchSize: Int): List<StreamEvent> {
         throw UnsupportedOperationException()
     }
