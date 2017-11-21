@@ -1,4 +1,4 @@
-package com.dreweaster.ddd.kestrel.infrastructure.serialisation.user
+package com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user
 
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.UsernameChanged
 import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonEventMappingConfigurationFactory

@@ -1,4 +1,4 @@
-package com.dreweaster.ddd.kestrel.infrastructure.readmodel.user
+package com.dreweaster.ddd.kestrel.infrastructure.driven.readmodel.user
 
 import com.dreweaster.ddd.kestrel.application.PersistedEvent
 import com.dreweaster.ddd.kestrel.application.readmodel.user.UserDTO
@@ -57,7 +57,7 @@ class SynchronousJdbcUserReadModel @Inject() constructor(val db: Database) : Syn
             "id" to userId,
             "username" to username,
             "password" to password,
-            "locked" to true
+            "locked" to false
         ))
     }
 

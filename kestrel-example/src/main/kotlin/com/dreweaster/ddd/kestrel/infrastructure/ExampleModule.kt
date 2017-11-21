@@ -8,23 +8,41 @@ import com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc.PostgresBackend
 import com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc.SynchronousJdbcReadModel
 import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonEventMappingConfigurer
 import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonEventPayloadMapper
-import com.dreweaster.ddd.kestrel.infrastructure.readmodel.user.SynchronousJdbcUserReadModel
-import com.dreweaster.ddd.kestrel.infrastructure.serialisation.user.*
+import com.dreweaster.ddd.kestrel.infrastructure.driven.readmodel.user.SynchronousJdbcUserReadModel
+import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.*
+import com.dreweaster.ddd.kestrel.infrastructure.driving.http.routes.user.UserRoutes
 import com.github.andrewoma.kwery.core.dialect.PostgresDialect
 import com.google.gson.Gson
 import com.google.inject.AbstractModule
+import com.google.inject.Binder
 import com.google.inject.Provides
 import com.google.inject.Singleton
 import com.google.inject.multibindings.Multibinder
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
+import io.ktor.application.Application
 
-class ExampleModule : AbstractModule() {
+class ExampleModule(val application: Application) : AbstractModule() {
+
+    inner class SynchronousJdbcReadModelBinder(val binder: Binder) {
+        val readModelsBinder = Multibinder.newSetBinder(binder(), SynchronousJdbcReadModel::class.java)
+        inline fun <reified R : SynchronousJdbcReadModel> bind(): Class<R> {
+            readModelsBinder.addBinding().to(R::class.java)
+            binder.bind(R::class.java).`in`(Singleton::class.java)
+            return R::class.java
+        }
+    }
 
     override fun configure() {
         // Read models
-        val readModelsBinder = Multibinder.newSetBinder(binder(), SynchronousJdbcReadModel::class.java)
-        registerReadModel<UserReadModel, SynchronousJdbcUserReadModel>(SynchronousJdbcUserReadModel::class.java, readModelsBinder)
+        val readModelBinder = SynchronousJdbcReadModelBinder(binder())
+        bind(UserReadModel::class.java).to(readModelBinder.bind<SynchronousJdbcUserReadModel>())
+
+        // Bind routes
+        bind(UserRoutes::class.java).asEagerSingleton()
+
+        // Bind Ktor Application
+        bind(Application::class.java).toInstance(application)
     }
 
     @Singleton
@@ -66,11 +84,5 @@ class ExampleModule : AbstractModule() {
         ) as List<JsonEventMappingConfigurer<DomainEvent>>)
 
         return PostgresBackend(database, payloadMapper, synchronousJdbcReadModels.toList())
-    }
-
-    private inline fun <reified T, S: T> registerReadModel(clazz: Class<S>, binder: Multibinder<SynchronousJdbcReadModel>) {
-        binder.addBinding().to(SynchronousJdbcUserReadModel::class.java)
-        bind(clazz).`in`(Singleton::class.java)
-        bind(T::class.java).to(clazz)
     }
 }

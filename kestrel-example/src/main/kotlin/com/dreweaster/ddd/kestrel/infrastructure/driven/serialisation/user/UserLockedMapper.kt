@@ -1,4 +1,4 @@
-package com.dreweaster.ddd.kestrel.infrastructure.serialisation.user
+package com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user
 
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.UserLocked
 import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonEventMappingConfigurationFactory
