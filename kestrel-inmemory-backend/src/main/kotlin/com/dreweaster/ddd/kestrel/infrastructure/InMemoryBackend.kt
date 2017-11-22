@@ -9,7 +9,7 @@ import java.time.Instant
 import java.util.*
 import kotlin.reflect.KClass
 
-class InMemoryBackend : Backend {
+open class InMemoryBackend : Backend {
 
     private var nextOffset: Long = 0L
 
@@ -22,7 +22,6 @@ class InMemoryBackend : Backend {
     suspend override fun <E : DomainEvent> loadEvents(
             aggregate: Aggregate<*, E, *>,
             aggregateId: AggregateId): List<PersistedEvent<E>> {
-        delay(100)
         return persistedEventsFor(aggregate, aggregateId)
     }
 
@@ -56,8 +55,6 @@ class InMemoryBackend : Backend {
             expectedSequenceNumber: Long,
             correlationId: CorrelationId?): List<PersistedEvent<E>> {
 
-        delay(100)
-
         if (aggregateHasBeenModified(aggregateType, aggregateId, expectedSequenceNumber)) {
             throw OptimisticConcurrencyException
         }
@@ -77,8 +74,6 @@ class InMemoryBackend : Backend {
                     acc.first)
             )
         }.second
-
-        delay(100)
 
         persistedEvents.forEach { event ->
             events += Pair(event, nextOffset)

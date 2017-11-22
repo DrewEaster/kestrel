@@ -22,7 +22,7 @@ object User : Aggregate<UserCommand, UserEvent, UserState> {
             behaviour<ActiveUser> {
 
                 receive {
-                    command<ChangePassword> { _, (password) -> accept(PasswordChanged(password)) }
+                    command<ChangePassword> { currentState, (newPassword) -> accept(PasswordChanged(currentState.password, newPassword)) }
                     command<ChangeUsername> { _, (username) -> accept(UsernameChanged(username)) }
                     command<IncrementFailedLoginAttempts> { (_,_,failedLoginAttempts), _ ->
                         when(failedLoginAttempts) {
@@ -33,7 +33,7 @@ object User : Aggregate<UserCommand, UserEvent, UserState> {
                 }
 
                 apply {
-                    event<PasswordChanged> { currentState, (password) -> currentState.copy(password = password) }
+                    event<PasswordChanged> { currentState, (_, newPassword) -> currentState.copy(password = newPassword) }
                     event<UsernameChanged> { currentState, (username) -> currentState.copy(username = username) }
                     event<FailedLoginAttemptsIncremented> { currentState, _ -> currentState.copy(failedLoginAttempts = currentState.failedLoginAttempts + 1) }
                     event<UserLocked> { (username, password, _), _ -> LockedUser(username, password)}
@@ -46,6 +46,7 @@ object User : Aggregate<UserCommand, UserEvent, UserState> {
                     command<ChangePassword> { _, _ -> reject(UserIsLocked) }
                     command<ChangeUsername> { _, _ -> reject(UserIsLocked) }
                     command<IncrementFailedLoginAttempts> { _, _ -> reject(UserIsLocked) }
+                    command<UnlockUser> { _, _ -> accept(UserUnlocked)}
                     //unhandledCommand { _, _ -> reject(UserIsLocked)}
                     //any { _, _ -> reject(UserIsLocked)}
                 }

@@ -29,10 +29,10 @@ class SynchronousJdbcUserReadModel @Inject() constructor(val db: Database) : Syn
     suspend override fun findUserById(id: String): UserDTO? = db.withSession { session ->
         session.select("SELECT * from usr WHERE id = :id", mapOf("id" to id)) { row ->
             UserDTO(
-                    id = row.string("id"),
-                    username = row.string("username"),
-                    password = row.string("password"),
-                    locked = row.boolean("locked")
+                id = row.string("id"),
+                username = row.string("username"),
+                password = row.string("password"),
+                locked = row.boolean("locked")
             )
         }
     }.firstOrNull()

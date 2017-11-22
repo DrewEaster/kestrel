@@ -23,5 +23,5 @@ abstract class BaseRoutes {
     suspend fun ApplicationCall.receiveJson() = jsonParser.parse(InputStreamReader(request.receiveContent().inputStream())) as JsonObject
 
     // Define extension to Int
-    infix suspend fun <C: DomainCommand, E: DomainEvent> C.sendTo(aggregateRoot: AggregateRoot<C, E>): CommandHandlingResult<E> = aggregateRoot.handle(this)
+    infix suspend fun <C: DomainCommand, E: DomainEvent> C.sendTo(aggregateRoot: AggregateRoot<C, E>): CommandHandlingResult<E> = aggregateRoot.handleCommand(this)
 }

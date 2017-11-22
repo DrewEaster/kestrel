@@ -13,11 +13,13 @@ object PasswordChangedMapper : JsonEventMappingConfigurer<PasswordChanged> {
             .mappingFunctions(
                 { event ->
                     jsonObject(
+                        "old_password" to event.oldPassword,
                         "password" to event.password
                     )
                 },
                 { node ->
                     PasswordChanged(
+                        oldPassword = node["old_password"].string,
                         password = node["password"].string
                     )
                 }

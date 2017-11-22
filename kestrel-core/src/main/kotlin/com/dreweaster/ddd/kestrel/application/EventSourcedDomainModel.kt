@@ -33,7 +33,7 @@ class EventSourcedDomainModel(
             private val aggregateId: AggregateId,
             private val reportingContext: ReportingContext<C,E,S>) : AggregateRoot<C,E> {
 
-        suspend override fun handle(commandEnvelope: CommandEnvelope<C>): CommandHandlingResult<E> {
+        suspend override fun handleCommandEnvelope(commandEnvelope: CommandEnvelope<C>): CommandHandlingResult<E> {
             reportingContext.startedHandling(commandEnvelope)
 
             val result = try {

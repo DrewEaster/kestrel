@@ -1,5 +1,7 @@
 package com.dreweaster.ddd.kestrel.domain
 
+import com.dreweaster.ddd.kestrel.application.UnsupportedEventInCurrentBehaviour
+import com.dreweaster.ddd.kestrel.application.UnsupportedEventInEdenBehaviour
 import io.vavr.control.Try
 import kotlin.reflect.KClass
 
@@ -58,7 +60,7 @@ class AggregateBlueprint<C: DomainCommand, E: DomainEvent, S: AggregateState>(va
         override fun canHandle(c: C) = capturedEden?.capturedReceive?.capturedHandlers?.get(c::class) != null
 
         override fun invoke(c: C): Try<List<E>> {
-            if(!canHandle(c)) throw UnsupportedOperationException()
+            if(!canHandle(c)) throw UnsupportedEventInEdenBehaviour
             return capturedEden!!.capturedReceive!!.capturedHandlers[c::class]!!.invoke(c)
         }
     }
@@ -76,7 +78,7 @@ class AggregateBlueprint<C: DomainCommand, E: DomainEvent, S: AggregateState>(va
         override fun canHandle(s: S, e: E) = capturedBehaviours[s::class]?.capturedApply?.capturedHandlers?.get(e::class) != null
 
         override fun invoke(s: S, e: E): S {
-            if(!canHandle(s, e)) throw UnsupportedOperationException()
+            if(!canHandle(s, e)) throw UnsupportedEventInCurrentBehaviour
             return capturedBehaviours[s::class]?.capturedApply?.capturedHandlers?.get(e::class)?.invoke(s, e)!!
         }
     }

@@ -8,7 +8,8 @@ sealed class UserEvent : DomainEvent {
 }
 
 data class UserRegistered(val username: String, val password: String): UserEvent()
-data class PasswordChanged(val password: String): UserEvent()
+data class PasswordChanged(val oldPassword: String, val password: String): UserEvent()
 data class UsernameChanged(val username: String): UserEvent()
 object UserLocked: UserEvent()
+object UserUnlocked: UserEvent()
 object FailedLoginAttemptsIncremented : UserEvent()

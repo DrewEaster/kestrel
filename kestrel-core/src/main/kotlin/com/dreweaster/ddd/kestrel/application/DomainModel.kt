@@ -38,9 +38,9 @@ data class CommandEnvelope<C: DomainCommand>(
 
 interface AggregateRoot<C: DomainCommand, E: DomainEvent> {
 
-    suspend infix fun handle(commandEnvelope: CommandEnvelope<C>): CommandHandlingResult<E>
+    suspend infix fun handleCommandEnvelope(commandEnvelope: CommandEnvelope<C>): CommandHandlingResult<E>
 
-    suspend infix fun handle(command: C): CommandHandlingResult<E> = handle(CommandEnvelope(command))
+    suspend infix fun handleCommand(command: C): CommandHandlingResult<E> = handleCommandEnvelope(CommandEnvelope(command))
 }
 
 interface DomainModel {

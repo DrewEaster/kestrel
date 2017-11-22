@@ -24,7 +24,23 @@
         <kotlin.coroutines.version>0.19.2</kotlin.coroutines.version>
         <junit.version>4.12</junit.version>
         <vavr.version>0.9.1</vavr.version>
+        <bintray.subject>dreweaster</bintray.subject>
+        <bintray.repo>projects</bintray.repo>
+        <bintray.package>kestrel</bintray.package>
     </properties>
+
+    <scm>
+        <url>https://github.com/DrewEaster/kestrel</url>
+        <connection>scm:git:git@github.com:DrewEaster/kestrel.git</connection>
+        <developerConnection>scm:git:git@github.com:DrewEaster/kestrel.git</developerConnection>
+    </scm>
+
+    <distributionManagement>
+        <repository>
+            <id>bintray-dreweaster-projects</id>
+            <url>https://api.bintray.com/maven/${bintray.subject}/${bintray.repo}/${bintray.package}/;publish=1</url>
+        </repository>
+    </distributionManagement>
 
     <dependencyManagement>
         <dependencies>
@@ -125,6 +141,11 @@
         <testSourceDirectory>src/test/kotlin</testSourceDirectory>
 
         <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>versions-maven-plugin</artifactId>
+                <version>2.3</version>
+            </plugin>
             <plugin>
                 <groupId>org.jetbrains.kotlin</groupId>
                 <artifactId>kotlin-maven-plugin</artifactId>
