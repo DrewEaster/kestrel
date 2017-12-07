@@ -51,7 +51,7 @@ class AggregateBlueprint<C: DomainCommand, E: DomainEvent, S: AggregateState>(va
         override fun canHandle(e: E) = capturedEden?.capturedApply?.capturedHandlers?.get(e::class) != null
 
         override fun invoke(e: E): S {
-            if(!canHandle(e)) throw UnsupportedOperationException()
+            if(!canHandle(e)) throw UnsupportedEventInEdenBehaviour
             return capturedEden!!.capturedApply!!.capturedHandlers[e::class]!!.invoke(e)
         }
     }
@@ -60,7 +60,7 @@ class AggregateBlueprint<C: DomainCommand, E: DomainEvent, S: AggregateState>(va
         override fun canHandle(c: C) = capturedEden?.capturedReceive?.capturedHandlers?.get(c::class) != null
 
         override fun invoke(c: C): Try<List<E>> {
-            if(!canHandle(c)) throw UnsupportedEventInEdenBehaviour
+            if(!canHandle(c)) throw UnsupportedOperationException()
             return capturedEden!!.capturedReceive!!.capturedHandlers[c::class]!!.invoke(c)
         }
     }

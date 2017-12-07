@@ -111,20 +111,23 @@ class EventSourcedDomainModel(
                     val generatedEvents = commandApplicationResult.get()
 
                     reportingContext.commandApplicationAccepted(generatedEvents)
-                    reportingContext.startedPersistingEvents(generatedEvents, aggregate.version)
 
-                    try {
-                        val persistedEvents = backend.saveEvents(
-                                aggregateType,
-                                aggregateId,
-                                CausationId(commandEnvelope.commandId.value),
-                                generatedEvents,
-                                aggregate.version,
-                                commandEnvelope.correlationId)
-                        reportingContext.finishedPersistingEvents(persistedEvents)
-                    } catch(ex: Throwable) {
-                        reportingContext.finishedPersistingEvents(ex)
-                        throw ex
+                    if(generatedEvents.isNotEmpty()) {
+                        reportingContext.startedPersistingEvents(generatedEvents, aggregate.version)
+
+                        try {
+                            val persistedEvents = backend.saveEvents(
+                                    aggregateType,
+                                    aggregateId,
+                                    CausationId(commandEnvelope.commandId.value),
+                                    generatedEvents,
+                                    aggregate.version,
+                                    commandEnvelope.correlationId)
+                            reportingContext.finishedPersistingEvents(persistedEvents)
+                        } catch (ex: Throwable) {
+                            reportingContext.finishedPersistingEvents(ex)
+                            throw ex
+                        }
                     }
 
                     SuccessResult(generatedEvents)
