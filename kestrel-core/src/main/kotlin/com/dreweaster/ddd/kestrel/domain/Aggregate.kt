@@ -32,7 +32,7 @@ class AggregateBlueprint<C: DomainCommand, E: DomainEvent, S: AggregateState>(va
 
     var capturedBehaviours: Map<KClass<S>, Behaviour<C,E,S,*>> = emptyMap()
 
-    inline fun edenBehaviour(init: EdenBehaviour<C,E,S>.() -> Unit): EdenBehaviour<C,E,S> {
+    inline fun edenBehaviour(allowEdenCommandsInAllBehaviours: Boolean = false, init: EdenBehaviour<C,E,S>.() -> Unit): EdenBehaviour<C,E,S> {
         val eden = EdenBehaviour<C,E,S>()
         eden.init()
         capturedEden = eden
@@ -47,7 +47,7 @@ class AggregateBlueprint<C: DomainCommand, E: DomainEvent, S: AggregateState>(va
         return behaviour
     }
 
-    val edenEventHandler: EdenHandler<E, S> = object : EdenHandler<E,S> {
+    val edenEventHandler: EdenEventHandler<E, S> = object : EdenEventHandler<E,S> {
         override fun canHandle(e: E) = capturedEden?.capturedApply?.capturedHandlers?.get(e::class) != null
 
         override fun invoke(e: E): S {
@@ -56,12 +56,14 @@ class AggregateBlueprint<C: DomainCommand, E: DomainEvent, S: AggregateState>(va
         }
     }
 
-    val edenCommandHandler: EdenHandler<C, Try<List<E>>> = object : EdenHandler<C, Try<List<E>>> {
+    val edenCommandHandler: EdenCommandHandler<C, Try<List<E>>> = object : EdenCommandHandler<C, Try<List<E>>> {
         override fun canHandle(c: C) = capturedEden?.capturedReceive?.capturedHandlers?.get(c::class) != null
+
+        override fun options(c: C) = capturedEden!!.capturedReceive!!.capturedHandlers[c::class]!!.second
 
         override fun invoke(c: C): Try<List<E>> {
             if(!canHandle(c)) throw UnsupportedOperationException()
-            return capturedEden!!.capturedReceive!!.capturedHandlers[c::class]!!.invoke(c)
+            return capturedEden!!.capturedReceive!!.capturedHandlers[c::class]!!.first.invoke(c)
         }
     }
 
@@ -105,13 +107,15 @@ class EdenBehaviour<C: DomainCommand, E: DomainEvent, S: AggregateState> {
     }
 }
 
+data class EdenCommandOptions(val allowInAllBehaviours: Boolean)
+
 class EdenReceive<C: DomainCommand, E: DomainEvent> {
 
-    var capturedHandlers : Map<KClass<C>,((C) -> Try<List<E>>)> = emptyMap()
+    var capturedHandlers : Map<KClass<C>, Pair<(C) -> Try<List<E>>, EdenCommandOptions>> = emptyMap()
 
     @Suppress("UNCHECKED_CAST")
-    inline fun <reified Cmd: C> command(noinline handler: (Cmd) -> Try<List<E>>) {
-        capturedHandlers += Cmd::class as KClass<C> to handler as (C) -> Try<List<E>>
+    inline fun <reified Cmd: C> command(allowInAllBehaviours: Boolean = false, noinline handler: (Cmd) -> Try<List<E>>) {
+        capturedHandlers += Cmd::class as KClass<C> to Pair(handler as (C) -> Try<List<E>>, EdenCommandOptions(allowInAllBehaviours))
     }
 
     fun <Evt: E> accept(vararg event: Evt): Try<List<Evt>> {
@@ -187,7 +191,13 @@ interface Handler<T1,T2,R> {
     operator fun invoke(t1: T1, t2:T2): R
 }
 
-interface EdenHandler<T,R> {
+interface EdenEventHandler<T,R> {
     fun canHandle(t: T): Boolean
+    operator fun invoke(t:T): R
+}
+
+interface EdenCommandHandler<T,R> {
+    fun canHandle(t: T): Boolean
+    fun options(t: T): EdenCommandOptions
     operator fun invoke(t:T): R
 }

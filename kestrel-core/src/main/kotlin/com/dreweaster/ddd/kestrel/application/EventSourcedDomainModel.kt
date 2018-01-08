@@ -79,11 +79,13 @@ class EventSourcedDomainModel(
                 reportingContext.commandApplicationAccepted(generatedEvents, deduplicated = true)
                 return result
             } else {
-                // Can't issue an eden command once aggregate already exists
                 if(aggregateType.blueprint.edenCommandHandler.canHandle(commandEnvelope.command)) {
-                    val rejectionResult = RejectionResult<E>(AggregateInstanceAlreadyExists)
-                    reportingContext.commandApplicationRejected(rejectionResult.error, rejectionResult.deduplicated)
-                    return rejectionResult
+                    if (!aggregateType.blueprint.edenCommandHandler.options(commandEnvelope.command).allowInAllBehaviours) {
+                        // Can't issue an eden command once aggregate already exists
+                        val rejectionResult = RejectionResult<E>(AggregateInstanceAlreadyExists)
+                        reportingContext.commandApplicationRejected(rejectionResult.error, rejectionResult.deduplicated)
+                        return rejectionResult
+                    }
                 }
 
                 if(!aggregateType.blueprint.commandHandler.canHandle(aggregate.state!!, commandEnvelope.command)) {

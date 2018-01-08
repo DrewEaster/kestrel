@@ -98,6 +98,8 @@ class DropwizardMetricsDomainModelReporter(private val metricRegistry: MetricReg
                             result.generatedEvents.forEach { metricRegistry.counter(eventSpecificMetricName(it)).inc() }
                         }
                     }
+
+                    // TODO: Should record specific rejection error types
                     is RejectionResult<E> -> {
                         if (result.deduplicated) {
                             metricRegistry.counter(commandSpecificMetricName(command!!, "result", "rejection", "deduplicated")).inc()
