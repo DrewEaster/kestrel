@@ -140,19 +140,19 @@ class PrometheusDomainModelReporter: DomainModelReporter {
             if(command != null) {
                 when(result) {
                     is SuccessResult<E> -> {
-                        commandExecution.labels(aggregateType.blueprint.name, command!!::class.simpleName, "accepted", result.deduplicated.toString()).inc()
+                        commandExecution.labels(aggregateType.blueprint.name, command!!.command::class.simpleName, "accepted", result.deduplicated.toString()).inc()
                         result.generatedEvents.forEach { eventsEmitted.labels(aggregateType.blueprint.name, it::class.simpleName).inc() }
                     }
 
                     // TODO: Should record specific rejection error types
                     is RejectionResult<E> -> {
-                        commandExecution.labels(aggregateType.blueprint.name, command!!::class.simpleName, "rejected", result.deduplicated.toString()).inc()
+                        commandExecution.labels(aggregateType.blueprint.name, command!!.command::class.simpleName, "rejected", result.deduplicated.toString()).inc()
                     }
                     is ConcurrentModificationResult<E> -> {
-                        commandExecution.labels(aggregateType.blueprint.name, command!!::class.simpleName, "failed-concurrent-modification", "false").inc()
+                        commandExecution.labels(aggregateType.blueprint.name, command!!.command::class.simpleName, "failed-concurrent-modification", "false").inc()
                     }
                     is UnexpectedExceptionResult<E> -> {
-                        commandExecution.labels(aggregateType.blueprint.name, command!!::class.simpleName, "failed-unexpected-exception", "false").inc()
+                        commandExecution.labels(aggregateType.blueprint.name, command!!.command::class.simpleName, "failed-unexpected-exception", "false").inc()
                     }
                 }
             }
