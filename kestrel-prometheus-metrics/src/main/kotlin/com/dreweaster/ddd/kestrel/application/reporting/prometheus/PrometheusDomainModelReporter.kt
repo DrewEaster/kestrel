@@ -6,13 +6,13 @@ import com.dreweaster.ddd.kestrel.domain.AggregateState
 import com.dreweaster.ddd.kestrel.domain.DomainCommand
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import io.prometheus.client.Counter
-import io.prometheus.client.Histogram
+import io.prometheus.client.Summary
 
 class PrometheusDomainModelReporter: DomainModelReporter {
 
     companion object {
 
-        val commandExecutionLatency = Histogram.build()
+        val commandExecutionLatency = Summary.build()
                 .name("aggregate_command_execution_latency_seconds")
                 .help("Aggregate command execution latency in seconds.")
                 .labelNames("aggregate_type", "command_type")
@@ -30,7 +30,7 @@ class PrometheusDomainModelReporter: DomainModelReporter {
                 .labelNames("aggregate_type", "event_type")
                 .register()
 
-        val aggregateRecoveryLatency = Histogram.build()
+        val aggregateRecoveryLatency = Summary.build()
                 .name("aggregate_recovery_latency_seconds")
                 .help("Aggregate recovery latency in seconds.")
                 .labelNames("aggregate_type")
@@ -42,7 +42,7 @@ class PrometheusDomainModelReporter: DomainModelReporter {
                 .labelNames("aggregate_type", "result")
                 .register()
 
-        val applyCommandLatency = Histogram.build()
+        val applyCommandLatency = Summary.build()
                 .name("aggregate_apply_command_latency_seconds")
                 .help("Apply command to aggregate latency in seconds.")
                 .labelNames("aggregate_type")
@@ -54,7 +54,7 @@ class PrometheusDomainModelReporter: DomainModelReporter {
                 .labelNames("aggregate_type", "result", "deduplicated")
                 .register()
 
-        val persistEventsLatency = Histogram.build()
+        val persistEventsLatency = Summary.build()
                 .name("aggregate_persist_events_latency_seconds")
                 .help("Persist events for aggregate latency in seconds.")
                 .labelNames("aggregate_type")
@@ -75,13 +75,13 @@ class PrometheusDomainModelReporter: DomainModelReporter {
 
         private var command: CommandEnvelope<C>? = null
 
-        private var commandHandlingTimerContext: Histogram.Timer? = null
+        private var commandHandlingTimerContext: Summary.Timer? = null
 
-        private var recoveringAggregateTimerContext: Histogram.Timer? = null
+        private var recoveringAggregateTimerContext: Summary.Timer? = null
 
-        private var applyCommandTimerContext: Histogram.Timer? = null
+        private var applyCommandTimerContext: Summary.Timer? = null
 
-        private var persistEventsTimerContext: Histogram.Timer? = null
+        private var persistEventsTimerContext: Summary.Timer? = null
 
         override fun startedHandling(command: CommandEnvelope<C>) {
             if(this.command == null) this.command = command
