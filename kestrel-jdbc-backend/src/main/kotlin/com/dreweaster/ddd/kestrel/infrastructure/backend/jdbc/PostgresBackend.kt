@@ -94,7 +94,7 @@ class PostgresBackend(
             session.select(maxOffsetForEventsForTagAfterOffsetQueryString, mapOf(
                     "tag" to tag.value,
                     "after_offset" to afterOffset
-            )) { it.long("max_offset") }.firstOrNull() ?: -1
+            )) { it.longOrNull("max_offset") ?: -1 }.firstOrNull() ?: -1
         }
         val events = db.withSession { session ->
             session.select(loadEventsForTagAfterOffsetQueryString, mapOf(
@@ -103,7 +103,13 @@ class PostgresBackend(
                     "limit" to batchSize
             )) { rowToStreamEvent<E>(tag, it) }
         }
-        return EventStream(events, tag, batchSize, events.firstOrNull()?.let { it.sequenceNumber }, events.lastOrNull()?.let { it.sequenceNumber }, maxOffset)
+        return EventStream(
+                events = events,
+                tag = tag,
+                batchSize = batchSize,
+                startOffset = events.firstOrNull()?.sequenceNumber,
+                endOffset = events.lastOrNull()?.sequenceNumber,
+                maxOffset = if(maxOffset == -1L) events.lastOrNull()?.sequenceNumber ?: -1L else maxOffset)
     }
 
     suspend override fun <E : DomainEvent> loadEventStream(tag: DomainEventTag, afterInstant: Instant, batchSize: Int): EventStream {
@@ -111,7 +117,7 @@ class PostgresBackend(
             session.select(maxOffsetForEventsForTagAfterInstantQueryString, mapOf(
                     "tag" to tag.value,
                     "after_instant" to Timestamp.from(afterInstant)
-            )) { it.long("max_offset") }.firstOrNull() ?: -1
+            )) { it.longOrNull("max_offset") ?: -1 }.firstOrNull() ?: -1
         }
         val events =  db.withSession { session ->
             session.select(loadEventsForTagAfterInstantQueryString, mapOf(
@@ -120,7 +126,13 @@ class PostgresBackend(
                     "limit" to batchSize
             )) { rowToStreamEvent<E>(tag, it) }
         }
-        return EventStream(events, tag, batchSize, events.firstOrNull()?.let { it.sequenceNumber }, events.lastOrNull()?.let { it.sequenceNumber }, maxOffset)
+        return EventStream(
+                events = events,
+                tag = tag,
+                batchSize = batchSize,
+                startOffset = events.firstOrNull()?.sequenceNumber,
+                endOffset = events.lastOrNull()?.sequenceNumber,
+                maxOffset = if(maxOffset == -1L) events.lastOrNull()?.sequenceNumber ?: -1L else maxOffset)
     }
 
     suspend override fun <E : DomainEvent> saveEvents(aggregateType: Aggregate<*, E, *>, aggregateId: AggregateId, causationId: CausationId, rawEvents: List<E>, expectedSequenceNumber: Long, correlationId: CorrelationId?): List<PersistedEvent<E>> {
