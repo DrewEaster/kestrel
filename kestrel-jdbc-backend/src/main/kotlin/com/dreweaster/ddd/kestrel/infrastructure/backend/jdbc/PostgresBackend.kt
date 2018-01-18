@@ -107,9 +107,9 @@ class PostgresBackend(
                 events = events,
                 tag = tag,
                 batchSize = batchSize,
-                startOffset = events.firstOrNull()?.sequenceNumber,
-                endOffset = events.lastOrNull()?.sequenceNumber,
-                maxOffset = if(maxOffset == -1L) events.lastOrNull()?.sequenceNumber ?: -1L else maxOffset)
+                startOffset = events.firstOrNull()?.offset,
+                endOffset = events.lastOrNull()?.offset,
+                maxOffset = if(maxOffset == -1L) events.lastOrNull()?.offset ?: -1L else maxOffset)
     }
 
     suspend override fun <E : DomainEvent> loadEventStream(tag: DomainEventTag, afterInstant: Instant, batchSize: Int): EventStream {
@@ -130,9 +130,9 @@ class PostgresBackend(
                 events = events,
                 tag = tag,
                 batchSize = batchSize,
-                startOffset = events.firstOrNull()?.sequenceNumber,
-                endOffset = events.lastOrNull()?.sequenceNumber,
-                maxOffset = if(maxOffset == -1L) events.lastOrNull()?.sequenceNumber ?: -1L else maxOffset)
+                startOffset = events.firstOrNull()?.offset,
+                endOffset = events.lastOrNull()?.offset,
+                maxOffset = if(maxOffset == -1L) events.lastOrNull()?.offset ?: -1L else maxOffset)
     }
 
     suspend override fun <E : DomainEvent> saveEvents(aggregateType: Aggregate<*, E, *>, aggregateId: AggregateId, causationId: CausationId, rawEvents: List<E>, expectedSequenceNumber: Long, correlationId: CorrelationId?): List<PersistedEvent<E>> {
