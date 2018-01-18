@@ -13,6 +13,7 @@
         <module>kestrel-json</module>
         <module>kestrel-jdbc-backend</module>
         <module>kestrel-dropwizard-metrics</module>
+        <module>kestrel-prometheus-metrics</module>
     </modules>
     <packaging>pom</packaging>
 
