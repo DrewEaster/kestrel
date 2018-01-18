@@ -5,6 +5,7 @@ import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
 import java.time.Instant
 import java.util.*
+import java.util.stream.Stream
 import kotlin.reflect.KClass
 
 interface Backend {
@@ -21,12 +22,12 @@ interface Backend {
     suspend fun <E : DomainEvent> loadEventStream(
             tag: DomainEventTag,
             afterOffset: Long,
-            batchSize: Int): List<StreamEvent>
+            batchSize: Int): EventStream
 
     suspend fun <E : DomainEvent> loadEventStream(
             tag: DomainEventTag,
             afterInstant: Instant,
-            batchSize: Int): List<StreamEvent>
+            batchSize: Int): EventStream
 
     suspend fun <E : DomainEvent> saveEvents(
             aggregateType: Aggregate<*,E,*>,
@@ -50,6 +51,14 @@ data class PersistedEvent<E : DomainEvent>(
         val rawEvent: E,
         val timestamp: Instant,
         val sequenceNumber: Long)
+
+data class EventStream(
+        val events: List<StreamEvent>,
+        val tag: DomainEventTag,
+        val batchSize: Int,
+        val startOffset: Long?,
+        val endOffset: Long?,
+        val maxOffset: Long)
 
 data class StreamEvent(
         val offset: Long,
