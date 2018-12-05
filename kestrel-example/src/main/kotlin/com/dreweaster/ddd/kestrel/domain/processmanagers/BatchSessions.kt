@@ -76,7 +76,7 @@ import java.time.Instant
 
 interface BatchSessionsContext : ProcessManagerContext {
 
-    data class CarPark(val bufferingPeriod: Duration)
+    data class CarPark(val priceCappingPeriod: Duration)
 
     val carPark: CarPark
 }
@@ -97,7 +97,7 @@ data class ParkingSessionBatchCreated(
     val sessions: List<QueuedParkingSession>): BatchSessionsEvent()
 
 object BufferingPeriodEnded: BatchSessionsEvent()
-object TimedOutCreatingBatch: BatchSessionsEvent()
+data class TimedOutCreatingBatch(val completedBatchId: AggregateId): BatchSessionsEvent()
 
 // States
 sealed class BatchSessionsState : ProcessManagerState
@@ -109,7 +109,9 @@ data class Buffering(
         val vehicle: Vehicle,
         val buffer: ParkingSessionBuffer): BatchSessionsState() {
 
-    operator fun plus(queuedParkingSession: QueuedParkingSession) = copy(buffer = buffer.copy(sessions = buffer.sessions + queuedParkingSession))
+    val bufferedSessions = buffer.sessions
+
+    operator fun plus(queuedParkingSession: QueuedParkingSession) = copy(buffer = buffer + queuedParkingSession)
 
     fun isWithinBufferingPeriod(timestamp: Instant) = buffer.bufferingWillCompleteAt.isAfter(timestamp)
 }
@@ -117,21 +119,46 @@ data class Buffering(
 data class CreatingBatch(
         val carParkId: AggregateId,
         val vehicle: Vehicle,
-        val sessions: List<QueuedParkingSession>,
-        val futureBuffer: ParkingSessionBuffer? = null): BatchSessionsState() {
+        val completedBatchId: AggregateId,
+        val completedBatch: List<QueuedParkingSession>,
+        val futureBuffer: ParkingSessionBuffer? = null,
+        val completedFutureBatches: List<List<QueuedParkingSession>> = emptyList()): BatchSessionsState() {
 
-    val containsFutureSessions = futureBuffer?.sessions?.isNotEmpty()
+    fun addToFutureBuffer(session: QueuedParkingSession, carPark: BatchSessionsContext.CarPark): CreatingBatch {
+        // TODO: Add completed future batch if necessary
+        val newFutureBuffer = futureBuffer?: ParkingSessionBuffer.startNew(session, carPark)
+        return copy(futureBuffer = newFutureBuffer)
+    }
 
-    val containsFutureBatch = false // TODO: Implement
+    fun withNextFutureBatch(): CreatingBatch =
+        copy(
+            completedBatchId = AggregateId(), // TODO: create deterministic (but unique to this batch) ID
+            completedBatch = completedFutureBatches.first(),
+            completedFutureBatches = completedFutureBatches.drop(1)
+        )
+
+    val isBufferingFutureSessions = futureBuffer?.sessions?.isNotEmpty() ?: false
+
+    val containsCompletedFutureBatches = completedFutureBatches.isNotEmpty() // TODO: Implement
 }
 
 // Value Objects
 data class Vehicle(val parkingAccountId: AggregateId, val parkableVehicleId: AggregateId)
 data class QueuedParkingSession(val startedAt: Instant, val finishedAt: Instant)
-data class ParkingSessionBuffer(
-    val sessions: List<QueuedParkingSession>,
-    val bufferingStartedAt: Instant,
-    val bufferingWillCompleteAt: Instant)
+
+data class ParkingSessionBuffer(val sessions: List<QueuedParkingSession>, val bufferingStartedAt: Instant, val bufferingWillCompleteAt: Instant) {
+
+    operator fun plus(queuedParkingSession: QueuedParkingSession) = copy(sessions = sessions + queuedParkingSession)
+
+    companion object {
+        fun startNew(parkingSession: QueuedParkingSession, carPark: BatchSessionsContext.CarPark) =
+            ParkingSessionBuffer(
+                sessions = listOf(parkingSession),
+                bufferingStartedAt = parkingSession.startedAt,
+                bufferingWillCompleteAt = parkingSession.startedAt + carPark.priceCappingPeriod
+            )
+    }
+}
 
 object BatchSessions: ProcessManager<BatchSessionsContext, BatchSessionsEvent, BatchSessionsState> {
 
@@ -143,63 +170,93 @@ object BatchSessions: ProcessManager<BatchSessionsContext, BatchSessionsEvent, B
 
                 process<ParkingSessionQueued> { cxt, _, evt ->
                     goto(Buffering(
-                        carParkId = evt.carParkId,
-                        vehicle = Vehicle(parkingAccountId = evt.parkingAccountId, parkableVehicleId = evt.parkableVehicleId),
-                        buffer = ParkingSessionBuffer(
-                                    sessions = listOf(QueuedParkingSession(startedAt = evt.startedAt, finishedAt = evt.finishedAt)),
-                                    bufferingStartedAt = evt.startedAt,
-                                    bufferingWillCompleteAt = evt.startedAt + cxt.carPark.bufferingPeriod)
-                    )).andEmit { BufferingPeriodEnded at evt.startedAt + cxt.carPark.bufferingPeriod }
+                            carParkId = evt.carParkId,
+                            vehicle = Vehicle(
+                                parkingAccountId = evt.parkingAccountId,
+                                parkableVehicleId = evt.parkableVehicleId
+                            ),
+                            buffer = ParkingSessionBuffer.startNew(
+                                carPark = cxt.carPark,
+                                parkingSession = QueuedParkingSession(
+                                    startedAt = evt.startedAt,
+                                    finishedAt = evt.finishedAt
+                                )
+                            )
+                    )).andEmit { BufferingPeriodEnded at evt.startedAt + cxt.carPark.priceCappingPeriod }
                 }
             }
 
             behaviour<Buffering> {
 
                 process<BufferingPeriodEnded> { _, state, _ ->
+                    val completedBatchId = AggregateId() // TODO: create deterministic (but unique to this batch) ID
                     goto(CreatingBatch(
-                        carParkId = state.carParkId,
-                        vehicle = state.vehicle,
-                        sessions = state.buffer.sessions)
+                            carParkId = state.carParkId,
+                            vehicle = state.vehicle,
+                            completedBatchId = completedBatchId,
+                            completedBatch = state.bufferedSessions)
                     ).andSend { RegisterUser("", "") toAggregate User identifiedBy AggregateId() at now
-                    }.andEmit { TimedOutCreatingBatch after 2.minutes() }
+                    }.andEmit { TimedOutCreatingBatch(completedBatchId) after 2.minutes() }
                 }
 
-                process<ParkingSessionQueued> { _, state, evt ->
+                process<ParkingSessionQueued> { cxt, state, evt ->
                     when {
                         state.isWithinBufferingPeriod(evt.finishedAt) ->
                             goto(state + QueuedParkingSession(startedAt = evt.startedAt, finishedAt = evt.finishedAt))
-                        else ->
+                        else -> {
+                            val completedBatchId = AggregateId() // TODO: create deterministic (but unique to this batch) ID
                             goto(CreatingBatch(
-                                carParkId = state.carParkId,
-                                vehicle = state.vehicle,
-                                sessions = state.buffer.sessions,
-                                futureBuffer = listOf(QueuedParkingSession(startedAt = evt.startedAt, finishedAt = evt.finishedAt)))
+                                    carParkId = state.carParkId,
+                                    vehicle = state.vehicle,
+                                    completedBatchId = completedBatchId,
+                                    completedBatch = state.buffer.sessions,
+                                    futureBuffer =
+                                        ParkingSessionBuffer.startNew(
+                                            carPark = cxt.carPark,
+                                            parkingSession = QueuedParkingSession(
+                                                startedAt = evt.startedAt,
+                                                finishedAt = evt.finishedAt
+                                            )
+                                        )
+                            )
                             ).andSend { RegisterUser("", "") toAggregate User identifiedBy AggregateId() at now
-                            }.andEmit { TimedOutCreatingBatch after 2.minutes() }
+                            }.andEmit { TimedOutCreatingBatch(completedBatchId) after 2.minutes() }
+                        }
                     }
                 }
             }
 
             behaviour<CreatingBatch> {
 
-                process<ParkingSessionQueued> { _, state, evt ->
-                    goto(state.copy(futureSessions = state.futureSessions + QueuedParkingSession(startedAt = evt.startedAt, finishedAt = evt.finishedAt)))
+                process<TimedOutCreatingBatch> { _, _, _ -> suspend("could_not_create_batch") }
+
+                // TODO: Handle case where receiving TimedOutCreatingBatch for an old batch whilst creating a more recent one
+                // Should just ignore it as we'd not have been able to advance to a new batch if the older batch hadn't been created successfully
+
+                process<ParkingSessionQueued> { cxt, state, evt ->
+                    goto(state.addToFutureBuffer(
+                        session = QueuedParkingSession(startedAt = evt.startedAt, finishedAt = evt.finishedAt),
+                        carPark = cxt.carPark)
+                    )
                 }
 
-                process<ParkingSessionBatchCreated> { cxt, state, _ ->
+                // TODO: Should this double check the id is as expected? Raise an error just in case?
+                process<ParkingSessionBatchCreated> { _, state, _ ->
                     when {
-                        // TODO: If future queue has already built up another batch, need to continue in CreatingBatch, dispatching CreateChargeableParkingSessionsBatch command
-                        state.containsFutureBatch ->
-                        state.containsFutureSessions -> continueWith(
-                                Buffering(
-                                        parkableVehicleId = state.parkableVehicleId,
-                                        carParkId = state.carParkId,
-                                        sessions = state.futureQueue,
-                                        bufferingStartedAt = state.futureQueue.head.startedAt,
-                                        bufferingWillCompleteAt = state.futureQueue.head.startedAt.plus(cxt.bufferPeriod)
-                                )
-                        ) { emit(BufferingPeriodEnded).after(state.futureQueue.head.startedAt.plus(cxt.bufferPeriod)) }
-                        else -> continueWith(Empty)
+                        state.containsCompletedFutureBatches -> {
+                            val nextState = state.withNextFutureBatch()
+                            goto(nextState)
+                                .andSend { RegisterUser("", "") toAggregate User identifiedBy AggregateId() at now }
+                                .andEmit { TimedOutCreatingBatch(nextState.completedBatchId) after 2.minutes() }
+                        }
+                        state.isBufferingFutureSessions -> {
+                            goto(Buffering(
+                                    carParkId = state.carParkId,
+                                    vehicle = state.vehicle,
+                                    buffer = state.futureBuffer!!)
+                            ).andEmit { BufferingPeriodEnded at state.futureBuffer.bufferingWillCompleteAt }
+                        }
+                        else -> goto(Empty)
                     }
                 }
             }

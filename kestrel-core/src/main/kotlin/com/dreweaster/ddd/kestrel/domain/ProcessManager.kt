@@ -84,6 +84,10 @@ class ProcessManagerBehaviour<C: ProcessManagerContext, E: DomainEvent, S: Proce
         return ProcessManagerStepBuilder(state)
     }
 
+    fun suspend(failureCode: String, message: String? = null, exception: Throwable? = null): ProcessManagerStepBuilder<Unit, C, E, S>{
+        return ProcessManagerStepBuilder(state)
+    }
+
     infix fun <C: DomainCommand, E: DomainEvent, S: AggregateState> C.toAggregate(aggregateType: Aggregate<C, E, S>) = CommandReceiver(aggregateType)
 
     fun Int.hours(): Duration {
