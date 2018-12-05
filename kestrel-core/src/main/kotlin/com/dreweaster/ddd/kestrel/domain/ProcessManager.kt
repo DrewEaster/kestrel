@@ -1,6 +1,7 @@
 package com.dreweaster.ddd.kestrel.domain
 
 import com.dreweaster.ddd.kestrel.application.AggregateId
+import com.dreweaster.ddd.kestrel.application.DomainModel
 import io.vavr.control.Try
 import java.time.Duration
 import java.time.Instant
@@ -46,9 +47,22 @@ class ProcessManagerBlueprint<C: ProcessManagerContext, E: DomainEvent, S: Proce
     }
 }
 
-sealed class SchedulableCommandAction
-data class SendCommandImmediately<Cmd : ARCommand, ARCommand: DomainCommand, AREvent: DomainEvent, ARState: AggregateState> (val command: Cmd, val aggregateType: Aggregate<ARCommand, AREvent, ARState>, val id: AggregateId): SchedulableCommandAction()
-data class SendCommandLater<Cmd : ARCommand, ARCommand: DomainCommand, AREvent: DomainEvent, ARState: AggregateState> (val command: Cmd, val aggregateType: Aggregate<ARCommand, AREvent, ARState>, val id: AggregateId, val at: Instant): SchedulableCommandAction()
+interface CommandDispatcher {
+
+    suspend fun <C : DomainCommand, E : DomainEvent, S : AggregateState> dispatch(
+            command: C,
+            aggregateType: Aggregate<C, E, S>,
+            aggregateId: AggregateId): Try<Unit>
+}
+
+data class SendableCommand<Cmd : ARCommand, ARCommand: DomainCommand, AREvent: DomainEvent, ARState: AggregateState> (val command: Cmd, val aggregateType: Aggregate<ARCommand, AREvent, ARState>, val id: AggregateId) {
+
+    suspend fun sendUsing(dispatcher: CommandDispatcher) {
+        dispatcher.dispatch(command, aggregateType, id)
+    }
+}
+
+data class SendCommandLater<Cmd : ARCommand, ARCommand: DomainCommand, AREvent: DomainEvent, ARState: AggregateState> (val command: Cmd, val aggregateType: Aggregate<ARCommand, AREvent, ARState>, val id: AggregateId, val at: Instant)
 
 sealed class SchedulableEventAction
 data class SendEventImmediately<Evt: E, E: DomainEvent> (val event: Evt): SchedulableEventAction()
@@ -92,7 +106,9 @@ class ProcessManagerBehaviour<C: ProcessManagerContext, E: DomainEvent, S: Proce
     }
 }
 
-data class ExecutedStep(val executionException: Throwable?, val scheduledCommands: List<SchedulableCommandAction>, val scheduledEvents: List<SchedulableEventAction>)
+sealed class ExecutedStep
+data class SuccessfullyExecutedStep(val sendableCommands: List<SendableCommand<*,*,*,*>>, val scheduledEvents: List<SchedulableEventAction>): ExecutedStep()
+data class UnsuccessfullyExecutedStep(val executionException: Throwable): ExecutedStep()
 
 class ProcessManagerStepBuilder<Result, C: ProcessManagerContext, E: DomainEvent, S: ProcessManagerState>(val state: S, val callable: (() -> Result)?) {
 
@@ -117,20 +133,11 @@ class ProcessManagerStepBuilder<Result, C: ProcessManagerContext, E: DomainEvent
                 is Try.Success -> {
                     val schedulableCommands = capturedCommandReceivers.map {
                         val commandReceiver = it.invoke(tryResult.get())
-                        if(commandReceiver.capturedTimestamp == Instant.MIN) {
-                            SendCommandImmediately(
-                                commandReceiver.command,
-                                commandReceiver.aggregateType as Aggregate<DomainCommand,DomainEvent,AggregateState>,
-                                commandReceiver.capturedId!!
-                            )
-                        } else {
-                            SendCommandLater(
-                                commandReceiver.command,
-                                commandReceiver.aggregateType as Aggregate<DomainCommand,DomainEvent,AggregateState>,
-                                commandReceiver.capturedId!!,
-                                if(commandReceiver.capturedTimestamp != null) commandReceiver.capturedTimestamp!! else  Instant.now() + commandReceiver.capturedDuration!!
-                            )
-                        }
+                        SendableCommand(
+                            commandReceiver.command,
+                            commandReceiver.aggregateType as Aggregate<DomainCommand,DomainEvent,AggregateState>,
+                            commandReceiver.capturedId!!
+                        )
                     }
 
                     val scheduledEvents = capturedEventReceivers.map {
@@ -145,27 +152,18 @@ class ProcessManagerStepBuilder<Result, C: ProcessManagerContext, E: DomainEvent
                         }
                     }
 
-                    ExecutedStep(null, schedulableCommands, scheduledEvents)
+                    SuccessfullyExecutedStep(schedulableCommands, scheduledEvents)
                 }
-                else -> ExecutedStep(tryResult.cause, emptyList(), emptyList())
+                else -> UnsuccessfullyExecutedStep(tryResult.cause)
             }
         } else {
             val schedulableCommands = capturedCommandReceivers.map {
                 val commandReceiver = it.invoke(Unit as Result)
-                if(commandReceiver.capturedTimestamp == Instant.MIN) {
-                    SendCommandImmediately(
-                            commandReceiver.command,
-                            commandReceiver.aggregateType as Aggregate<DomainCommand,DomainEvent,AggregateState>,
-                            commandReceiver.capturedId!!
-                    )
-                } else {
-                    SendCommandLater(
-                            commandReceiver.command,
-                            commandReceiver.aggregateType as Aggregate<DomainCommand,DomainEvent,AggregateState>,
-                            commandReceiver.capturedId!!,
-                            if(commandReceiver.capturedTimestamp != null) commandReceiver.capturedTimestamp!! else  Instant.now() + commandReceiver.capturedDuration!!
-                    )
-                }
+                SendableCommand(
+                    commandReceiver.command,
+                    commandReceiver.aggregateType as Aggregate<DomainCommand,DomainEvent,AggregateState>,
+                    commandReceiver.capturedId!!
+                )
             }
 
             val scheduledEvents = capturedEventReceivers.map {
@@ -179,7 +177,7 @@ class ProcessManagerStepBuilder<Result, C: ProcessManagerContext, E: DomainEvent
                     )
                 }
             }
-            ExecutedStep(null, schedulableCommands, scheduledEvents)
+            SuccessfullyExecutedStep(schedulableCommands, scheduledEvents)
         }
     }
 }
@@ -188,22 +186,8 @@ class CommandReceiver<C: DomainCommand, E: DomainEvent, S: AggregateState>(val c
 
     var capturedId: AggregateId? = null
 
-    var capturedTimestamp: Instant? = null
-
-    var capturedDuration: Duration? = null
-
     infix fun identifiedBy(id: AggregateId): CommandReceiver<C,E,S> {
         capturedId = id
-        return this
-    }
-
-    infix fun at(timestamp: Instant): CommandReceiver<C,E,S> {
-        capturedTimestamp = timestamp
-        return this
-    }
-
-    infix fun after(duration: Duration): CommandReceiver<C,E,S> {
-        capturedDuration = duration
         return this
     }
 }

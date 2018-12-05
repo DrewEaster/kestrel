@@ -1,9 +1,12 @@
 package com.dreweaster.ddd.kestrel.domain.processmanagers
 
-import com.dreweaster.ddd.kestrel.application.AggregateId
+import com.dreweaster.ddd.kestrel.application.*
 import com.dreweaster.ddd.kestrel.domain.*
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.RegisterUser
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.User
+import com.dreweaster.ddd.kestrel.infrastructure.InMemoryBackend
+import io.vavr.control.Try
+import kotlinx.coroutines.experimental.runBlocking
 import java.time.Duration
 import java.time.Instant
 
@@ -184,8 +187,9 @@ object BatchSessions: ProcessManager<BatchSessionsContext, BatchSessionsEvent, B
                                     startedAt = evt.startedAt,
                                     finishedAt = evt.finishedAt
                                 )
-                            )
-                    )).andEmit { BufferingPeriodEnded at evt.startedAt + cxt.carPark.priceCappingPeriod }
+                            ))
+                    ) { "dreweaster" to "password" }.andSend { RegisterUser(it.first, it.second) toAggregate User identifiedBy AggregateId()
+                    }.andEmit { BufferingPeriodEnded at evt.startedAt + cxt.carPark.priceCappingPeriod }
                 }
             }
 
@@ -198,7 +202,7 @@ object BatchSessions: ProcessManager<BatchSessionsContext, BatchSessionsEvent, B
                             vehicle = state.vehicle,
                             completedBatchId = completedBatchId,
                             completedBatch = state.bufferedSessions)
-                    ).andSend { RegisterUser("", "") toAggregate User identifiedBy AggregateId() at now
+                    ).andSend { RegisterUser("dreweaster", "password") toAggregate User identifiedBy AggregateId()
                     }.andEmit { TimedOutCreatingBatch(completedBatchId) after 2.minutes() }
                 }
 
@@ -222,7 +226,7 @@ object BatchSessions: ProcessManager<BatchSessionsContext, BatchSessionsEvent, B
                                             )
                                         )
                             )
-                            ).andSend { RegisterUser("", "") toAggregate User identifiedBy AggregateId() at now
+                            ).andSend { RegisterUser("dreweaster", "password") toAggregate User identifiedBy AggregateId()
                             }.andEmit { TimedOutCreatingBatch(completedBatchId) after 2.minutes() }
                         }
                     }
@@ -254,7 +258,7 @@ object BatchSessions: ProcessManager<BatchSessionsContext, BatchSessionsEvent, B
                         state.containsCompletedFutureBatches -> {
                             val nextState = state.withNextFutureBatch()
                             goto(nextState)
-                                .andSend { RegisterUser("", "") toAggregate User identifiedBy AggregateId() at now }
+                                .andSend { RegisterUser("", "") toAggregate User identifiedBy AggregateId() }
                                 .andEmit { TimedOutCreatingBatch(nextState.completedBatchId) after 2.minutes() }
                         }
                         state.isBufferingFutureSessions -> {
@@ -273,7 +277,8 @@ object BatchSessions: ProcessManager<BatchSessionsContext, BatchSessionsEvent, B
 
 class ProcessManagerEntryPoint<C: ProcessManagerContext, E: DomainEvent, S: ProcessManagerState> (
         private val processManagerType: ProcessManager<C, E, S>,
-        private val processManagerId: String) {
+        private val processManagerId: String,
+        private val commandDispatcher: CommandDispatcher) {
 
     fun process() {
         val blueprint = processManagerType.blueprint
@@ -286,10 +291,16 @@ class ProcessManagerEntryPoint<C: ProcessManagerContext, E: DomainEvent, S: Proc
         val builder = handler.invoke(batchSessionsContext, state, event)
 
         val executedStep = builder.execute()
-        executedStep.scheduledCommands.forEach { println(it) }
-        executedStep.scheduledEvents.forEach {
-            when(it) {
-                is SendEventLater<*,*> -> println(it.event::class)
+        when(executedStep) {
+            is SuccessfullyExecutedStep -> {
+                executedStep.sendableCommands.forEach {
+                    runBlocking { it.sendUsing(commandDispatcher) }
+                }
+                executedStep.scheduledEvents.forEach {
+                    when(it) {
+                        is SendEventLater<*,*> -> println(it.event::class)
+                    }
+                }
             }
         }
     }
@@ -301,7 +312,20 @@ fun main(args: Array<String>) {
             processManagerType: ProcessManager<C, E, S>,
             processManagerId: String): ProcessManagerEntryPoint<C,E,S> {
 
-        return ProcessManagerEntryPoint(processManagerType, processManagerId)
+        val domainModel = EventSourcedDomainModel(InMemoryBackend(), TwentyFourHourWindowCommandDeduplication)
+        val commandDispatcher = object : CommandDispatcher {
+            override suspend fun <C : DomainCommand, E : DomainEvent, S : AggregateState> dispatch(command: C, aggregateType: Aggregate<C, E, S>, aggregateId: AggregateId): Try<Unit> {
+                // TODO: Stuff like generating the right metadata
+                val result = domainModel.aggregateRootOf(aggregateType, aggregateId).handleCommand(command)
+                return when(result) {
+                    is SuccessResult -> Try.success(Unit)
+                    is RejectionResult -> Try.failure(result.error) // TODO: Probably terminal so suspend the PM
+                    is ConcurrentModificationResult -> Try.failure(OptimisticConcurrencyException) // TODO: Retry a few times before suspending
+                    is UnexpectedExceptionResult -> Try.failure(result.ex) // TODO: Retry a few times before suspending
+                }
+            }
+        }
+        return ProcessManagerEntryPoint(processManagerType, processManagerId, commandDispatcher)
     }
 
     val pm = processManagerOf(BatchSessions, "")
