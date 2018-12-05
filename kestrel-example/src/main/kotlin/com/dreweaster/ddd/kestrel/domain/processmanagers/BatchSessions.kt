@@ -42,9 +42,12 @@ import java.time.Instant
 //    event<ParkingSessionCompleted> { evt -> ParkingSessionQueued(evt.name) }
 //    event<ChargeableParkingSessionsBatched> { evt -> BatchCreated }
 //}
-// domainModel.policyOf(BatchSessions).storeEvent(event) // This will apply any mappers as necessary
-// domainModel.policyOf(BatchSessions).instancesAwaitingProcessing(pageable): Page<PolicyId> // orders by process with oldest outstanding unprocessed event
-// domainModel.policyOf(BatchSessions).instanceOf(id).process()
+// domainModel.processManagerOf(BatchSessions).storeEvent(event) // This will apply any mappers as necessary
+// domainModel.processManagerOf(BatchSessions).instancesAwaitingProcessing(pageable): Page<PolicyId> // orders by process with oldest outstanding unprocessed event
+// domainModel.processManagerOf(BatchSessions).instanceOf(id).process()
+// domainModel.processManagerOf(BatchSessions).instanceOf(id).suspend() // Manually force a process manager to suspend from the outside
+// domainModel.processManagerOf(BatchSessions).instanceOf(id).resume() // Forces a suspended process manager to resume processing from where it was suspended
+// domainModel.processManagerOf(BatchSessions).instanceOf(id).resumeFrom(sequenceNumber) // Forces a suspended process manager to resume processing from a given future sequence number
 
 //override suspend fun prepareContext(event: BatchSessionsEvent, state: BatchSessionsState?): BatchSessionsContext {
 //    val carParkConfiguration = carParkService.getCarPark(state.carParkId)
@@ -228,7 +231,12 @@ object BatchSessions: ProcessManager<BatchSessionsContext, BatchSessionsEvent, B
 
             behaviour<CreatingBatch> {
 
-                process<TimedOutCreatingBatch> { _, _, _ -> suspend("could_not_create_batch") }
+                process<TimedOutCreatingBatch> { _, state, evt ->
+                    when {
+                        state.completedBatchId != evt.completedBatchId -> goto(state) // TODO: Is this the correct way to ignore an event?
+                        else -> throw Suspend("failed_to_create_batch")
+                    }
+                }
 
                 // TODO: Handle case where receiving TimedOutCreatingBatch for an old batch whilst creating a more recent one
                 // Should just ignore it as we'd not have been able to advance to a new batch if the older batch hadn't been created successfully
@@ -261,4 +269,41 @@ object BatchSessions: ProcessManager<BatchSessionsContext, BatchSessionsEvent, B
                 }
             }
         }
+}
+
+class ProcessManagerEntryPoint<C: ProcessManagerContext, E: DomainEvent, S: ProcessManagerState> (
+        private val processManagerType: ProcessManager<C, E, S>,
+        private val processManagerId: String) {
+
+    fun process() {
+        val blueprint = processManagerType.blueprint
+        val behaviour = blueprint.capturedBehaviours[blueprint.startWith::class]
+        val event = ParkingSessionQueued(AggregateId(), AggregateId(), AggregateId(), Instant.now(), Instant.now()) as E
+        val state = blueprint.startWith
+        val batchSessionsContext = object : BatchSessionsContext { override val carPark = BatchSessionsContext.CarPark(Duration.ofMinutes(100)) } as C
+
+        val handler = behaviour?.capturedHandlers?.get(event::class)!! as (C,S,E) -> ProcessManagerStepBuilder<*,C,E,S>
+        val builder = handler.invoke(batchSessionsContext, state, event)
+
+        val executedStep = builder.execute()
+        executedStep.scheduledCommands.forEach { println(it) }
+        executedStep.scheduledEvents.forEach {
+            when(it) {
+                is SendEventLater<*,*> -> println(it.event::class)
+            }
+        }
+    }
+}
+
+fun main(args: Array<String>) {
+
+    fun <C: ProcessManagerContext, E: DomainEvent, S: ProcessManagerState> processManagerOf(
+            processManagerType: ProcessManager<C, E, S>,
+            processManagerId: String): ProcessManagerEntryPoint<C,E,S> {
+
+        return ProcessManagerEntryPoint(processManagerType, processManagerId)
+    }
+
+    val pm = processManagerOf(BatchSessions, "")
+    pm.process()
 }
