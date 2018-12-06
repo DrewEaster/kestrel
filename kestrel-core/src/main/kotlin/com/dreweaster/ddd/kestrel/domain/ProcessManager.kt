@@ -27,7 +27,7 @@ interface ProcessManager<C: ProcessManagerContext, E: DomainEvent, S: ProcessMan
 
     val blueprint: ProcessManagerBlueprint<C,E,S>
 
-    fun processManager(name: String, startWith: S, init: ProcessManagerBlueprint<C,E,S>.() -> Unit): ProcessManagerBlueprint<C,E,S> {
+    fun processManager(name: String, startWith: S, endWith: S? = null, init: ProcessManagerBlueprint<C,E,S>.() -> Unit): ProcessManagerBlueprint<C,E,S> {
         val processManager = ProcessManagerBlueprint<C,E,S>(name, startWith)
         processManager.init()
         return processManager
@@ -55,6 +55,11 @@ interface CommandDispatcher {
             aggregateId: AggregateId): Try<Unit>
 }
 
+interface EventScheduler {
+
+    suspend fun <Evt: E, E : DomainEvent> schedule(event: Evt, at: Instant): Try<Unit>
+}
+
 data class SendableCommand<Cmd : ARCommand, ARCommand: DomainCommand, AREvent: DomainEvent, ARState: AggregateState> (val command: Cmd, val aggregateType: Aggregate<ARCommand, AREvent, ARState>, val id: AggregateId) {
 
     suspend fun sendUsing(dispatcher: CommandDispatcher) {
@@ -62,11 +67,12 @@ data class SendableCommand<Cmd : ARCommand, ARCommand: DomainCommand, AREvent: D
     }
 }
 
-data class SendCommandLater<Cmd : ARCommand, ARCommand: DomainCommand, AREvent: DomainEvent, ARState: AggregateState> (val command: Cmd, val aggregateType: Aggregate<ARCommand, AREvent, ARState>, val id: AggregateId, val at: Instant)
+data class SchedulableEvent<Evt: E, E: DomainEvent> (val event: Evt, val at: Instant) {
 
-sealed class SchedulableEventAction
-data class SendEventImmediately<Evt: E, E: DomainEvent> (val event: Evt): SchedulableEventAction()
-data class SendEventLater<Evt: E, E: DomainEvent> (val event: Evt, val at: Instant): SchedulableEventAction()
+    suspend fun scheduleUsing(scheduler: EventScheduler) {
+        scheduler.schedule(event, at)
+    }
+}
 
 class ProcessManagerBehaviour<C: ProcessManagerContext, E: DomainEvent, S: ProcessManagerState, State: S> {
 
@@ -77,7 +83,7 @@ class ProcessManagerBehaviour<C: ProcessManagerContext, E: DomainEvent, S: Proce
         capturedHandlers += Evt::class as KClass<E> to handler as (C, State, E) -> ProcessManagerStepBuilder<*, C, E, S>
     }
 
-    fun <Result, ResultState : S> goto(state: ResultState, callable: () -> Result): ProcessManagerStepBuilder<Result,C, E, S> {
+    fun <Result, ResultState : S> goto(state: ResultState, callable: suspend () -> Result): ProcessManagerStepBuilder<Result,C, E, S> {
         return ProcessManagerStepBuilder(state, callable)
     }
 
@@ -107,10 +113,10 @@ class ProcessManagerBehaviour<C: ProcessManagerContext, E: DomainEvent, S: Proce
 }
 
 sealed class ExecutedStep
-data class SuccessfullyExecutedStep(val sendableCommands: List<SendableCommand<*,*,*,*>>, val scheduledEvents: List<SchedulableEventAction>): ExecutedStep()
+data class SuccessfullyExecutedStep(val sendableCommands: List<SendableCommand<*,*,*,*>>, val scheduledEvents: List<SchedulableEvent<*,*>>): ExecutedStep()
 data class UnsuccessfullyExecutedStep(val executionException: Throwable): ExecutedStep()
 
-class ProcessManagerStepBuilder<Result, C: ProcessManagerContext, E: DomainEvent, S: ProcessManagerState>(val state: S, val callable: (() -> Result)?) {
+class ProcessManagerStepBuilder<Result, C: ProcessManagerContext, E: DomainEvent, S: ProcessManagerState>(val state: S, val callable: (suspend () -> Result)?) {
 
     var capturedCommandReceivers : List<(Result) -> CommandReceiver<*,*,*>> = emptyList()
 
@@ -126,8 +132,18 @@ class ProcessManagerStepBuilder<Result, C: ProcessManagerContext, E: DomainEvent
         return this
     }
 
-    fun execute(): ExecutedStep {
-        val tryResult = callable?.let { Try.of(callable) }
+    suspend fun <Result> doExecute(callable: (suspend () -> Result)): Try<Result> {
+        return try {
+            val result = callable.invoke()
+            Try.success(result)
+        } catch (ex: Exception) {
+            Try.failure(ex)
+        }
+    }
+
+    suspend fun execute(): ExecutedStep {
+        callable?.invoke()
+        val tryResult = callable?.let { doExecute(it) }
         return if(tryResult != null) {
             when(tryResult) {
                 is Try.Success -> {
@@ -142,14 +158,10 @@ class ProcessManagerStepBuilder<Result, C: ProcessManagerContext, E: DomainEvent
 
                     val scheduledEvents = capturedEventReceivers.map {
                         val eventReceiver = it.invoke(tryResult.get())
-                        if(eventReceiver.capturedTimestamp == Instant.MIN) {
-                            SendEventImmediately(eventReceiver.capturedEvent as DomainEvent)
-                        } else {
-                            SendEventLater(
-                                eventReceiver.capturedEvent as DomainEvent,
-                                if(eventReceiver.capturedTimestamp != null) eventReceiver.capturedTimestamp!! else  Instant.now() + eventReceiver.capturedDuration!!
-                            )
-                        }
+                        SchedulableEvent(
+                            eventReceiver.capturedEvent as DomainEvent,
+                            if(eventReceiver.capturedTimestamp != null) eventReceiver.capturedTimestamp!! else  Instant.now() + eventReceiver.capturedDuration!!
+                        )
                     }
 
                     SuccessfullyExecutedStep(schedulableCommands, scheduledEvents)
@@ -168,14 +180,10 @@ class ProcessManagerStepBuilder<Result, C: ProcessManagerContext, E: DomainEvent
 
             val scheduledEvents = capturedEventReceivers.map {
                 val eventReceiver = it.invoke(Unit as Result)
-                if(eventReceiver.capturedTimestamp == Instant.MIN) {
-                    SendEventImmediately(eventReceiver.capturedEvent as DomainEvent)
-                } else {
-                    SendEventLater(
-                            eventReceiver.capturedEvent as DomainEvent,
-                            if(eventReceiver.capturedTimestamp != null) eventReceiver.capturedTimestamp!! else  Instant.now() + eventReceiver.capturedDuration!!
-                    )
-                }
+                SchedulableEvent(
+                    eventReceiver.capturedEvent as DomainEvent,
+                    if(eventReceiver.capturedTimestamp != null) eventReceiver.capturedTimestamp!! else  Instant.now() + eventReceiver.capturedDuration!!
+                )
             }
             SuccessfullyExecutedStep(schedulableCommands, scheduledEvents)
         }

@@ -52,6 +52,10 @@ import java.time.Instant
 // domainModel.processManagerOf(BatchSessions).instanceOf(id).resume() // Forces a suspended process manager to resume processing from where it was suspended
 // domainModel.processManagerOf(BatchSessions).instanceOf(id).resumeFrom(sequenceNumber) // Forces a suspended process manager to resume processing from a given future sequence number
 
+// Whenever a new event arrives:
+//   1. Store the event = domainModel.processManagerOf(BatchSessions).storeEvent(event) (returns the correlation id that was used for the event)
+//   2. Then trigger processing straight away = domainModel.processManagerOf(BatchSessions).instanceOf(id).process() (using the correlation id returned above)
+
 //override suspend fun prepareContext(event: BatchSessionsEvent, state: BatchSessionsState?): BatchSessionsContext {
 //    val carParkConfiguration = carParkService.getCarPark(state.carParkId)
 //    return object : BatchSessionsContext {
@@ -76,8 +80,19 @@ import java.time.Instant
 // Default uses eventId as commandId sent to Aggregate
 //
 // Need to decide how to handle commands. Should enter failure state if
-
-
+//
+// When a PM enters its endsWith state, the min_sequence_number is set to the last_processed_sequence_number + 1 - this essentially resets
+// the PM back to eden state so that it will always start from min_sequence_number in the future rather than right from beginning of time.
+// This is to deal with what can technically be indefinite running processes where a particular correlation id may continue to be used
+// in the future. It's an optimisation that means the same correlation id can be reused without having to deal with historical uses of
+// the same ID. A PM that has last_processed_sequence_number < min_sequence_num can technically be cleaned up as long as you're sure there won't be
+// further events. At the very least, it's reasonable to delete all event history for that PM where event sequence number < min_sequence_num.
+// A PM is only a candidate for needing processing if last_processed_seq_num is < max_sequence_number AND max_sequence_number >= min_sequence_number
+//
+// Scheduled events to send back to PM keep note of the min_sequence_number at the time the event was generated. If the min_sequence_number has
+// changed by the time the PM with that correlation id has got an updated min_sequence_number, the event is not appended to the PM's event log and
+// is simply discarded.
+//
 // Context
 
 interface BatchSessionsContext : ProcessManagerContext {
@@ -109,6 +124,7 @@ data class TimedOutCreatingBatch(val completedBatchId: AggregateId): BatchSessio
 sealed class BatchSessionsState : ProcessManagerState
 
 object Empty : BatchSessionsState()
+object Finished: BatchSessionsState()
 
 data class Buffering(
         val carParkId: AggregateId,
@@ -170,7 +186,7 @@ object BatchSessions: ProcessManager<BatchSessionsContext, BatchSessionsEvent, B
 
     override val blueprint =
 
-        processManager("batch-parking-sessions", startWith = Empty) {
+        processManager("batch-parking-sessions", startWith = Empty, endWith = Finished) {
 
             behaviour<Empty> {
 
@@ -252,7 +268,7 @@ object BatchSessions: ProcessManager<BatchSessionsContext, BatchSessionsEvent, B
                     )
                 }
 
-                // TODO: Should this double check the id is as expected? Raise an error just in case?
+                // TODO: Should this double check the id is as expected? Raise an error just in case? If not sure, let someone resolve it manually (Greg Young)
                 process<ParkingSessionBatchCreated> { _, state, _ ->
                     when {
                         state.containsCompletedFutureBatches -> {
@@ -268,7 +284,7 @@ object BatchSessions: ProcessManager<BatchSessionsContext, BatchSessionsEvent, B
                                     buffer = state.futureBuffer!!)
                             ).andEmit { BufferingPeriodEnded at state.futureBuffer.bufferingWillCompleteAt }
                         }
-                        else -> goto(Empty)
+                        else -> goto(Finished)
                     }
                 }
             }
@@ -278,9 +294,10 @@ object BatchSessions: ProcessManager<BatchSessionsContext, BatchSessionsEvent, B
 class ProcessManagerEntryPoint<C: ProcessManagerContext, E: DomainEvent, S: ProcessManagerState> (
         private val processManagerType: ProcessManager<C, E, S>,
         private val processManagerId: String,
-        private val commandDispatcher: CommandDispatcher) {
+        private val commandDispatcher: CommandDispatcher,
+        private val eventScheduler: EventScheduler) {
 
-    fun process() {
+    suspend fun process() {
         val blueprint = processManagerType.blueprint
         val behaviour = blueprint.capturedBehaviours[blueprint.startWith::class]
         val event = ParkingSessionQueued(AggregateId(), AggregateId(), AggregateId(), Instant.now(), Instant.now()) as E
@@ -291,15 +308,15 @@ class ProcessManagerEntryPoint<C: ProcessManagerContext, E: DomainEvent, S: Proc
         val builder = handler.invoke(batchSessionsContext, state, event)
 
         val executedStep = builder.execute()
+
+        // TODO: Need to ideally dispatch commands and schedule events in parallel and then compose results
         when(executedStep) {
             is SuccessfullyExecutedStep -> {
                 executedStep.sendableCommands.forEach {
-                    runBlocking { it.sendUsing(commandDispatcher) }
+                    it.sendUsing(commandDispatcher)
                 }
                 executedStep.scheduledEvents.forEach {
-                    when(it) {
-                        is SendEventLater<*,*> -> println(it.event::class)
-                    }
+                    it.scheduleUsing(eventScheduler)
                 }
             }
         }
@@ -325,9 +342,13 @@ fun main(args: Array<String>) {
                 }
             }
         }
-        return ProcessManagerEntryPoint(processManagerType, processManagerId, commandDispatcher)
+
+        val eventScheduler = object : EventScheduler {
+            override suspend fun <Evt : E, E : DomainEvent> schedule(event: Evt, at: Instant) = Try.success(Unit)
+        }
+        return ProcessManagerEntryPoint(processManagerType, processManagerId, commandDispatcher, eventScheduler)
     }
 
     val pm = processManagerOf(BatchSessions, "")
-    pm.process()
+    runBlocking { pm.process() }
 }

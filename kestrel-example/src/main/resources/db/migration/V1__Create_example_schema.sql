@@ -43,7 +43,8 @@ CREATE INDEX events_for_process_manager_instance_idx ON process_manager_domain_e
 CREATE TABLE process_manager (
     process_manager_correlation_id  VARCHAR(72)              NOT NULL,
     process_manager_type            VARCHAR(255)             NOT NULL,
-    max_processed_sequence_number   BIGINT                   NOT NULL,
+    min_sequence_number             BIGINT                   NOT NULL, -- This is used to 'reset' the PM for indefinitely running PMs
+    max_sequence_number             BIGINT                   NOT NULL, -- if reset, min_seq_num will be > max_seq_num
     last_processed_sequence_number  BIGINT                   NOT NULL,
     oldest_unprocessed_timestamp    TIMESTAMP WITH TIME ZONE NULL,
     has_unprocessed_events          BOOLEAN                  NOT NULL,
