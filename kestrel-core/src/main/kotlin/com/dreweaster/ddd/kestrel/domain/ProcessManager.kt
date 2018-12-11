@@ -57,6 +57,7 @@ interface CommandDispatcher {
 
 interface EventScheduler {
 
+    // Implementation of this will deliver event straight away
     suspend fun <Evt: E, E : DomainEvent> schedule(event: Evt, at: Instant): Try<Unit>
 }
 
@@ -132,15 +133,6 @@ class ProcessManagerStepBuilder<Result, C: ProcessManagerContext, E: DomainEvent
         return this
     }
 
-    suspend fun <Result> doExecute(callable: (suspend () -> Result)): Try<Result> {
-        return try {
-            val result = callable.invoke()
-            Try.success(result)
-        } catch (ex: Exception) {
-            Try.failure(ex)
-        }
-    }
-
     suspend fun execute(): ExecutedStep {
         callable?.invoke()
         val tryResult = callable?.let { doExecute(it) }
@@ -188,6 +180,15 @@ class ProcessManagerStepBuilder<Result, C: ProcessManagerContext, E: DomainEvent
             SuccessfullyExecutedStep(schedulableCommands, scheduledEvents)
         }
     }
+
+    private suspend fun <Result> doExecute(callable: (suspend () -> Result)): Try<Result> {
+        return try {
+            val result = callable.invoke()
+            Try.success(result)
+        } catch (ex: Exception) {
+            Try.failure(ex)
+        }
+    }
 }
 
 class CommandReceiver<C: DomainCommand, E: DomainEvent, S: AggregateState>(val command: C, val aggregateType: Aggregate<C, E, S>) {
@@ -218,3 +219,4 @@ class EventReceiver<E: DomainEvent>() {
         capturedDuration = duration
     }
 }
+

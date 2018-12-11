@@ -12,6 +12,7 @@
         <module>kestrel-inmemory-backend</module>
         <module>kestrel-json</module>
         <module>kestrel-jdbc-backend</module>
+        <module>kestrel-http-event-streams</module>
         <module>kestrel-dropwizard-metrics</module>
         <module>kestrel-prometheus-metrics</module>
     </modules>
@@ -28,6 +29,7 @@
         <bintray.subject>dreweaster</bintray.subject>
         <bintray.repo>projects</bintray.repo>
         <bintray.package>kestrel</bintray.package>
+        <slf4j.version>1.7.25</slf4j.version>
     </properties>
 
     <scm>
@@ -45,6 +47,11 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-api</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.jetbrains.kotlin</groupId>
                 <artifactId>kotlin-stdlib</artifactId>
@@ -97,6 +104,10 @@
     </dependencyManagement>
 
     <dependencies>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.jetbrains.kotlin</groupId>
             <artifactId>kotlin-stdlib</artifactId>

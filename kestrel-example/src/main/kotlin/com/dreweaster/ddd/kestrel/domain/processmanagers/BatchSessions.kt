@@ -9,6 +9,10 @@ import io.vavr.control.Try
 import kotlinx.coroutines.experimental.runBlocking
 import java.time.Duration
 import java.time.Instant
+import kotlin.reflect.full.memberProperties
+import kotlin.reflect.jvm.javaField
+import kotlin.reflect.jvm.javaGetter
+import kotlin.reflect.jvm.reflect
 
 // Really important to note that any async actions, dispatched commands, emitted events will be triggered with at-least-once semantics
 // If any of these fail, then they will all be re-executed. So, it's important to apply the idempotent receiver pattern
@@ -22,7 +26,7 @@ import java.time.Instant
 // domainModel.registerPolicy(
 //    BatchSessions,
 //    correlationIdSelector
-//    domainServiceBuilder,
+//    contextBuilder,
 //    eventMapper,
 //    actionRetryConfiguration,
 //    snapshotConfiguration
@@ -37,7 +41,6 @@ import java.time.Instant
 //    when (evt) {
 //        is ParkingSessionCompleted -> "${evt.parkableVehicleId}-${evt.carParkId}"
 //        is ChargeableParkingSessionsBatched -> metadata.correlationId
-//        is BufferingPeriodEnded -> metadata.correlationId
 //    }
 //}
 
@@ -46,8 +49,8 @@ import java.time.Instant
 //    event<ChargeableParkingSessionsBatched> { evt -> BatchCreated }
 //}
 // domainModel.processManagerOf(BatchSessions).storeEvent(event) // This will apply any mappers as necessary
-// domainModel.processManagerOf(BatchSessions).instancesAwaitingProcessing(pageable): Page<PolicyId> // orders by process with oldest outstanding unprocessed event
-// domainModel.processManagerOf(BatchSessions).instanceOf(id).process()
+// domainModel.processManagerOf(BatchSessions).instancesAwaitingProcessing(pageable): Page<ProcessManagerId> // orders by process with oldest outstanding unprocessed event
+// domainModel.processManagerOf(BatchSessions).instanceOf(id).process() // Manually trigger process manager to execute - only useful if has events awaiting processing, does nowt otherwise
 // domainModel.processManagerOf(BatchSessions).instanceOf(id).suspend() // Manually force a process manager to suspend from the outside
 // domainModel.processManagerOf(BatchSessions).instanceOf(id).resume() // Forces a suspended process manager to resume processing from where it was suspended
 // domainModel.processManagerOf(BatchSessions).instanceOf(id).resumeFrom(sequenceNumber) // Forces a suspended process manager to resume processing from a given future sequence number
@@ -93,6 +96,20 @@ import java.time.Instant
 // changed by the time the PM with that correlation id has got an updated min_sequence_number, the event is not appended to the PM's event log and
 // is simply discarded.
 //
+// Need deterministic ids for event scheduling.
+// Commands will need some way to ensure deterministic ids - use incoming event id and command type?
+//
+// Need to introduce some kind of actor model design to restrict likelihood of trying to process a scheduled event at the same type as an external event.
+// Although the philosophy of Kestrel is to expect at-least-once-delivery, it's still preferable to avoid unnecessarily causing duplicate deliveries.
+//
+// Scheduler needs to support the concept of acknowledgement in order to guarantee at-least-once-delivery of scheduled events.
+// Need to guarantee that scheduled events will definitely be written to a process manager's event log at-least-once (with dedupe handled by event id during actual processing)
+//
+// Processing of a process manager should also happen within the single-threaded environment of an actor. With bounded mailbox if too many attempts to concurrently
+// trigger processing occur.
+//
+// If you schedule event at
+
 // Context
 
 interface BatchSessionsContext : ProcessManagerContext {
@@ -204,7 +221,7 @@ object BatchSessions: ProcessManager<BatchSessionsContext, BatchSessionsEvent, B
                                     finishedAt = evt.finishedAt
                                 )
                             ))
-                    ) { "dreweaster" to "password" }.andSend { RegisterUser(it.first, it.second) toAggregate User identifiedBy AggregateId()
+                    ).andSend  { RegisterUser("","") toAggregate User identifiedBy AggregateId()
                     }.andEmit { BufferingPeriodEnded at evt.startedAt + cxt.carPark.priceCappingPeriod }
                 }
             }
@@ -321,6 +338,42 @@ class ProcessManagerEntryPoint<C: ProcessManagerContext, E: DomainEvent, S: Proc
             }
         }
     }
+}
+
+data class ProcessManagerScheduledEvent<C: ProcessManagerContext, E: DomainEvent, S: ProcessManagerState>(val serialisedEvent: String, val metadata: ProcessManagerScheduledEventMetadata<C,E,S>) {
+
+    data class ProcessManagerScheduledEventMetadata<C: ProcessManagerContext, E: DomainEvent, S: ProcessManagerState>(
+            val processManagerType: ProcessManager<C, E, S>,
+            val processManagerId: AggregateId,
+            val eventId: EventId,
+            val eventVersion: Long)
+}
+
+interface ProcessManagerEventScheduler {
+
+    interface ProcessManagerScheduledEventNotification<C: ProcessManagerContext, E: DomainEvent, S: ProcessManagerState> {
+        val event: ProcessManagerScheduledEvent<C,E,S>
+        fun ack() // It's necessary for a listener to call ack() to confirm event has been handled. Otherwise scheduler should resend
+    }
+
+    interface Listener<C: ProcessManagerContext, E: DomainEvent, S: ProcessManagerState> { fun onEventTriggered(notification: ProcessManagerScheduledEventNotification<C,E,S>) }
+
+    fun <C: ProcessManagerContext, E: DomainEvent, S: ProcessManagerState> registerListener(listener: Listener<C,E,S>) // DomainModel impl will attach as listener and handle event serialisation/deserialisation
+
+    fun <C: ProcessManagerContext, E: DomainEvent, S: ProcessManagerState> schedule(event: ProcessManagerScheduledEvent<C,E,S>, after: Instant)
+}
+
+interface DomainModel {
+
+    // By listening in to this event, one can choose to automatically trigger the process manager to process if desired
+    // domainModel.processManagerOf(BatchSessions).instanceOf(processManagerId).process()
+    // Alternative is to solely rely on polling domainModel.processManagerOf(BatchSessions).instancesAwaitingProcessing(pageable): Page<ProcessManagerId>
+    // As a way to trigger the processing of process managers with outstanding events to process
+    // Not guaranteed delivery so still would need the separate process that's polling domainModel.processManagerOf(BatchSessions).instancesAwaitingProcessing(pageable)
+    // Only works if current app instance is the one that persisted the event
+    interface ProcessManagerListener<C: ProcessManagerContext, E: DomainEvent, S: ProcessManagerState> { fun onProcessManagerEventPersisted(processManagerType: ProcessManager<C,E,S>, processManagerId: AggregateId, event: E) }
+
+    fun <C: ProcessManagerContext, E: DomainEvent, S: ProcessManagerState> addProcessManagerListener(processManagerType: ProcessManager<C,E,S>, listener: ProcessManagerListener<C,E,S>)
 }
 
 fun main(args: Array<String>) {

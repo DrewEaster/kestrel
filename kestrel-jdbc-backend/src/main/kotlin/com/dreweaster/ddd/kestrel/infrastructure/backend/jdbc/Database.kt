@@ -14,7 +14,7 @@ import kotlin.coroutines.experimental.intrinsics.suspendCoroutineOrReturn
 
 object TransactionRollbackException : RuntimeException()
 
-class Database(val name: String, val dataSource: DataSource, val poolSize: Int, val dialect: Dialect) {
+class Database(name: String, dataSource: DataSource, poolSize: Int, val dialect: Dialect) {
 
     val context = newFixedThreadPoolContext(nThreads = poolSize, name = name) + DataSourceContext(dataSource)
 
