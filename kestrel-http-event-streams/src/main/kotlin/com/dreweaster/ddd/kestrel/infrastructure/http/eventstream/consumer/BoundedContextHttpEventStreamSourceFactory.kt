@@ -1,15 +1,9 @@
-package com.dreweaster.ddd.kestrel.infrastructure.driving.eventstream
+package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer
 
 import com.dreweaster.ddd.kestrel.application.eventstream.BoundedContextName
-import com.dreweaster.ddd.kestrel.application.eventstream.EventMetadata
-import com.dreweaster.ddd.kestrel.application.eventstream.StatelessEventConsumer
 import com.dreweaster.ddd.kestrel.application.job.JobManager
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
-import com.dreweaster.ddd.kestrel.domain.aggregates.user.FailedLoginAttemptsIncremented
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.BoundedContextHttpEventStreamSource
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.BoundedContextHttpEventStreamSourceConfiguration
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.HttpJsonEventMapper
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.OffsetManager
 import com.google.gson.JsonObject
 import org.asynchttpclient.AsyncHttpClient
@@ -35,25 +29,25 @@ abstract class BoundedContextHttpEventStreamSourceFactory(val name: BoundedConte
 
     class EventMappers {
 
-        var mappersList: List<HttpJsonEventMapper<*>> = emptyList()
+        val mappersList: MutableList<HttpJsonEventMapper<*>> = mutableListOf()
 
         fun tag(tagName: String, init: Tag.() -> Unit): Tag {
-            val tag = Tag(DomainEventTag(tagName))
+            val tag = Tag(DomainEventTag(tagName), mappersList)
             tag.init()
             return tag
         }
 
         fun build(): List<HttpJsonEventMapper<*>> = mappersList
+    }
 
-        inner class Tag(val tag: DomainEventTag) {
-            inline fun <reified E: DomainEvent> event(sourceEventType: String, noinline handler: (JsonObject) -> E) {
-                mappersList += HttpJsonEventMapper(
-                    sourceEventType = sourceEventType,
-                    sourceEventTag = tag,
-                    targetEventClass = E::class,
-                    map = handler
-                )
-            }
+    class Tag(val tag: DomainEventTag, val mappersList: MutableList<HttpJsonEventMapper<*>>) {
+        inline fun <reified E: DomainEvent> event(sourceEventType: String, noinline handler: (JsonObject) -> E) {
+            mappersList.add(HttpJsonEventMapper(
+                sourceEventType = sourceEventType,
+                sourceEventTag = tag,
+                targetEventClass = E::class,
+                map = handler
+            ))
         }
     }
 
