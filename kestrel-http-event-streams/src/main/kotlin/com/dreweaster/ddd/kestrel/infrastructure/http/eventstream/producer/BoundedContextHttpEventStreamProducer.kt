@@ -11,7 +11,7 @@ import com.github.salomonbrys.kotson.jsonObject
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 
-class HttpJsonEventStreamProducer(val backend: Backend) {
+class BoundedContextHttpJsonEventStreamProducer(val backend: Backend) {
 
     private val jsonParser = JsonParser()
 

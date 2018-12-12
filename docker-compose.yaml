@@ -1,0 +1,28 @@
+version: '2'
+services:
+  example:
+    build:
+      context: .
+    volumes:
+      - .:/src
+      - ~/.m2/repository:/root/.m2/repository
+    ports:
+      - "8080:8080"
+    restart: always
+    privileged: true
+    stdin_open: true
+    tty: true
+  example-db:
+    image: postgres:9.6-alpine
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_PASSWORD=password
+  pg-admin:
+    image: thajeztah/pgadmin4
+    restart: always
+    ports:
+      - "5050:5050"
+volumes:
+  m2-cache:

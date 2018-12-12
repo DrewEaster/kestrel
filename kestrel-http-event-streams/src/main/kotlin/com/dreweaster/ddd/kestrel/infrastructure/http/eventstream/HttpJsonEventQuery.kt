@@ -24,7 +24,7 @@ data class HttpJsonEventQuery(
     }
 
     fun eventsUrlFor(protocol: String, hostname: String, port: Int, path: String) = when {
-        afterTimestamp != null -> URL("$protocol://$hostname:$port/$path?tag=${tags.map { it.value }.joinToString(",")}&batch_size=$batchSize&after_timestamp=${URLEncoder.encode(instantToUTCString(afterTimestamp), "UTF-8")}")
-        else -> URL("$protocol://$hostname:$port/$path?tag=${tags.map { it.value }.joinToString(",")}&batch_size=$batchSize&after_offset=${afterOffset ?: -1}")
+        afterTimestamp != null -> URL("$protocol://$hostname:$port$path?tag=${tags.map { it.value }.joinToString(",")}&batch_size=$batchSize&after_timestamp=${URLEncoder.encode(instantToUTCString(afterTimestamp), "UTF-8")}")
+        else -> URL("$protocol://$hostname:$port$path?tag=${tags.map { it.value }.joinToString(",")}&batch_size=$batchSize&after_offset=${afterOffset ?: -1}")
     }
 }

@@ -7,7 +7,14 @@ import com.dreweaster.ddd.kestrel.application.EventId
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import kotlin.reflect.KClass
 
-interface BoundedContextEventStreamSources { operator fun get(name: String): BoundedContextEventStreamSource }
+interface BoundedContextName { val name: String }
+
+class BoundedContextEventStreamSources(sources: List<Pair<BoundedContextName, BoundedContextEventStreamSource>>) {
+
+    private val sourcesMap = sources.toMap()
+
+    operator fun get(name: BoundedContextName) = sourcesMap[name]
+}
 
 interface BoundedContextEventStreamSource {
 

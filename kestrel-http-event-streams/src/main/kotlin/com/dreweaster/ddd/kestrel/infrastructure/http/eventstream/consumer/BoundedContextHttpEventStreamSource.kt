@@ -1,17 +1,19 @@
 package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer
 
 import com.dreweaster.ddd.kestrel.application.*
-import com.dreweaster.ddd.kestrel.application.eventstream.BoundedContextEventStreamSource
-import com.dreweaster.ddd.kestrel.application.eventstream.EventMetadata
-import com.dreweaster.ddd.kestrel.application.eventstream.EventStreamSubscriberConfiguration
-import com.dreweaster.ddd.kestrel.application.eventstream.EventStreamSubscriptionEdenPolicy
+import com.dreweaster.ddd.kestrel.application.eventstream.*
 import com.dreweaster.ddd.kestrel.application.job.Job
 import com.dreweaster.ddd.kestrel.application.job.JobManager
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
+import com.dreweaster.ddd.kestrel.infrastructure.cluster.LocalClusterManager
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.HttpJsonEventQuery
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.InMemoryOffsetManager
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.OffsetManager
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.reporting.BoundedContextHttpEventStreamSourceProbe
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.reporting.BoundedContextHttpEventStreamSourceReporter
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.reporting.ReportingContext
+import com.dreweaster.ddd.kestrel.infrastructure.job.ScheduledExecutorServiceJobManager
 import com.github.salomonbrys.kotson.get
 import com.github.salomonbrys.kotson.long
 import com.github.salomonbrys.kotson.nullString
@@ -24,20 +26,16 @@ import org.asynchttpclient.*
 import org.slf4j.LoggerFactory
 import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.Executors
 import kotlin.reflect.KClass
 
 typealias FullyQualifiedClassName = String
 
-interface HttpJsonEventMapper<T: DomainEvent> {
-
-    val targetEventClass: KClass<T>
-
-    val sourceEventTag: DomainEventTag
-
-    val sourceEventType: FullyQualifiedClassName
-
-    fun map(jsonPayload: JsonObject): T
-}
+data class HttpJsonEventMapper<T: DomainEvent>(
+    val targetEventClass: KClass<T>,
+    val sourceEventTag: DomainEventTag,
+    val sourceEventType: FullyQualifiedClassName,
+    val map: (JsonObject) -> T)
 
 interface BoundedContextHttpEventStreamSourceConfiguration {
 
@@ -56,20 +54,31 @@ interface BoundedContextHttpEventStreamSourceConfiguration {
     fun enabled(subscriptionName: String): Boolean
 }
 
-// TODO: Need to factor in skipped events into batch size - i.e. always process minimum of batch size even if that means fetching multiple batches
+// TODO: Need to factor skipped events into batch size - i.e. always process minimum of batch size even if that means fetching multiple batches
 class BoundedContextHttpEventStreamSource(
         val httpClient: AsyncHttpClient,
         val configuration: BoundedContextHttpEventStreamSourceConfiguration,
         eventMappers: List<HttpJsonEventMapper<*>>,
         val offsetManager: OffsetManager,
-        private val jobManager: JobManager,
-        val reporter: BoundedContextHttpEventStreamSourceReporter): BoundedContextEventStreamSource {
+        private val jobManager: JobManager): BoundedContextEventStreamSource {
 
     private val LOG = LoggerFactory.getLogger(BoundedContextHttpEventStreamSource::class.java)
 
     private val targetClassToEventTag: Map<KClass<out DomainEvent>, DomainEventTag> = eventMappers.map { it.targetEventClass to it.sourceEventTag }.toMap()
 
-    val sourceEventTypeToMapper: Map<FullyQualifiedClassName, (JsonObject) -> DomainEvent> = eventMappers.map { it.sourceEventType to { jsonObject: JsonObject -> it.map(jsonObject)} }.toMap()
+    private val sourceEventTypeToMapper: Map<FullyQualifiedClassName, (JsonObject) -> DomainEvent> = eventMappers.map { it.sourceEventType to { jsonObject: JsonObject -> it.map(jsonObject)} }.toMap()
+
+    private var reporters: List<BoundedContextHttpEventStreamSourceReporter> = emptyList()
+
+    fun addReporter(reporter: BoundedContextHttpEventStreamSourceReporter): BoundedContextHttpEventStreamSource {
+        reporters += reporter
+        return this
+    }
+
+    fun removeReporter(reporter: BoundedContextHttpEventStreamSourceReporter): BoundedContextHttpEventStreamSource {
+        reporters -= reporter
+        return this
+    }
 
     override fun subscribe(handlers: Map<KClass<out DomainEvent>, (suspend (DomainEvent, EventMetadata) -> Unit)>, subscriberConfiguration: EventStreamSubscriberConfiguration) {
         val allTags = handlers.keys.map { targetClassToEventTag[it] ?: throw IllegalArgumentException("Unsupported event type: ${it.qualifiedName}") }.toSet()
@@ -93,7 +102,7 @@ class BoundedContextHttpEventStreamSource(
 
         override val name = subscriberConfiguration.name
 
-        private val probe = reporter.createProbe(subscriberConfiguration.name)
+        private val probe = ReportingContext(name, reporters)
 
         private val requestFactory = HttpEventStreamSubscriptionEdenPolicy.from(subscriberConfiguration.edenPolicy)
             .newRequestFactory(
@@ -200,6 +209,8 @@ class BoundedContextHttpEventStreamSource(
             }
         }
     }
+
+
 }
 
 sealed class HttpEventStreamSubscriptionEdenPolicy {

@@ -6,6 +6,7 @@ import com.dreweaster.ddd.kestrel.application.readmodel.user.UserReadModel
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.RegisterUser
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.User
 import com.dreweaster.ddd.kestrel.infrastructure.driving.http.routes.BaseRoutes
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.producer.BoundedContextHttpJsonEventStreamProducer
 import com.github.salomonbrys.kotson.jsonObject
 import com.github.salomonbrys.kotson.string
 import com.google.gson.JsonObject
@@ -14,11 +15,20 @@ import io.ktor.application.*
 import io.ktor.http.HttpStatusCode
 import io.ktor.response.*
 import io.ktor.routing.*
+import io.ktor.util.toMap
 
-class UserRoutes @Inject constructor(application:Application, domainModel: DomainModel, userReadModel: UserReadModel): BaseRoutes() {
+class UserRoutes @Inject constructor(application:Application, domainModel: DomainModel, userReadModel: UserReadModel, backend: Backend): BaseRoutes() {
 
     init {
         application.routing {
+
+            route("/events") {
+
+                get {
+                    val producer = BoundedContextHttpJsonEventStreamProducer(backend)
+                    call.respondWithJson(producer.produceFrom(call.parameters.toMap()))
+                }
+            }
 
             route("/users") {
 

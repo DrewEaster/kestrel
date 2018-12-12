@@ -16,7 +16,7 @@ fun main(args: Array<String>) {
 
     // Migrate DB
     val flyway = Flyway()
-    flyway.setDataSource("jdbc:postgresql://localhost/postgres", "postgres", "password")
+    flyway.setDataSource("jdbc:postgresql://example-db/postgres", "postgres", "password")
     flyway.migrate()
 
     embeddedServer(Netty, commandLineEnvironment(args)).start()

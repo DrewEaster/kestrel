@@ -36,9 +36,9 @@ CREATE TABLE process_manager_domain_event (
     event_payload                  TEXT         NOT NULL,
     event_timestamp                TIMESTAMP    NOT NULL,
     sequence_number                BIGINT       NOT NULL
-)
+);
 
-CREATE INDEX events_for_process_manager_instance_idx ON process_manager_domain_event (process_manager_type, process_manager_id);
+CREATE INDEX events_for_process_manager_instance_idx ON process_manager_domain_event (process_manager_type, process_manager_correlation_id);
 
 CREATE TABLE process_manager (
     process_manager_correlation_id  VARCHAR(72)              NOT NULL,
@@ -51,8 +51,8 @@ CREATE TABLE process_manager (
     retry_count                     INT                      NULL,
     retry_after                     TIMESTAMP WITH TIME ZONE NULL,
     suspended                       BOOLEAN                  NOT NULL,
-    PRIMARY KEY (process_manager_id, process_manager_type)
-)
+    PRIMARY KEY (process_manager_correlation_id, process_manager_type)
+);
 
 CREATE TABLE process_manager_failure (
     failure_id                     BIGSERIAL                PRIMARY KEY,
@@ -62,15 +62,21 @@ CREATE TABLE process_manager_failure (
     stack_trace                    TEXT                     NULL,
     message                        TEXT                     NULL,
     failure_timestamp              TIMESTAMP WITH TIME ZONE NOT NULL
-)
+);
 
-CREATE TABLE process_manager_snapshot (
-
-)
+--CREATE TABLE process_manager_snapshot (
+--
+--)
 
 CREATE TABLE usr (
     id       VARCHAR(36)  PRIMARY KEY,
     username VARCHAR(100) NOT NULL,
     password VARCHAR(20)  NOT NULL,
     locked   BOOLEAN      NOT NULL
-)
+);
+
+CREATE TABLE event_stream_offsets (
+  name                      VARCHAR(100) NOT NULL,
+  last_processed_offset     BIGINT       NOT NULL,
+  PRIMARY KEY (name)
+);
