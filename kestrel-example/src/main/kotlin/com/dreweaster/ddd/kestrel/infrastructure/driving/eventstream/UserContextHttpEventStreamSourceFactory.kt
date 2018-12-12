@@ -33,20 +33,17 @@ object UserContextHttpEventStreamSourceFactory: BoundedContextHttpEventStreamSou
     private val userLockedMapper = HttpJsonEventMapper(
             sourceEventType = "com.dreweaster.ddd.kestrel.domain.aggregates.user.UserLocked",
             sourceEventTag = userEventTag,
-            targetEventClass = UserLocked::class,
-            map = { UserLocked })
+            targetEventClass = UserLocked::class) { UserLocked }
 
     private val userUnlockedMapper = HttpJsonEventMapper(
             sourceEventType = "com.dreweaster.ddd.kestrel.domain.aggregates.user.UserUnlocked",
             sourceEventTag = userEventTag,
-            targetEventClass = UserUnlocked::class,
-            map = { UserUnlocked })
+            targetEventClass = UserUnlocked::class) { UserUnlocked }
 
     private val failedLoginAttemptsIncrementedMapper = HttpJsonEventMapper(
             sourceEventType = "com.dreweaster.ddd.kestrel.domain.aggregates.user.FailedLoginAttemptsIncremented",
             sourceEventTag = userEventTag,
-            targetEventClass = FailedLoginAttemptsIncremented::class,
-            map = { FailedLoginAttemptsIncremented })
+            targetEventClass = FailedLoginAttemptsIncremented::class) { FailedLoginAttemptsIncremented }
 
     override val mappers = listOf(
         userRegisteredMapper,
