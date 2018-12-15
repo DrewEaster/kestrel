@@ -8,6 +8,7 @@ services:
       - ~/.m2/repository:/root/.m2/repository
     ports:
       - "8080:8080"
+      - "5005:5005"
     restart: always
     privileged: true
     stdin_open: true

@@ -1,84 +1,75 @@
 package com.dreweaster.ddd.kestrel.infrastructure.driven.readmodel.user
 
-import com.dreweaster.ddd.kestrel.application.PersistedEvent
 import com.dreweaster.ddd.kestrel.application.readmodel.user.UserDTO
 import com.dreweaster.ddd.kestrel.application.readmodel.user.UserReadModel
-import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.*
 import com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc.Database
 import com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc.SynchronousJdbcReadModel
-import com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc.Transaction
-import com.github.andrewoma.kwery.core.Session
 import com.google.inject.Inject
+import org.jetbrains.exposed.sql.*
 
-class SynchronousJdbcUserReadModel @Inject() constructor(val db: Database) : SynchronousJdbcReadModel, UserReadModel {
+class SynchronousJdbcUserReadModel @Inject() constructor(private val db: Database) : SynchronousJdbcReadModel(), UserReadModel {
 
-    override fun aggregateType() = User
+    object Users : Table("usr") {
+        val id: Column<String> = varchar("id", 72)
+        val username: Column<String> = varchar("username", 100)
+        val password: Column<String> = varchar("password", 20)
+        val locked: Column<Boolean> = bool("locked")
+    }
 
-    override suspend fun findAllUsers(): List<UserDTO> = db.withSession { session ->
-        session.select("SELECT * from usr") { row ->
-            UserDTO(
-                id = row.string("id"),
-                username = row.string("username"),
-                password = row.string("password"),
-                locked = row.boolean("locked")
-            )
+    override suspend fun findAllUsers(): List<UserDTO> = db.transaction { Users.selectAll().map(rowMapper) }
+
+    override suspend fun findUserById(id: String): UserDTO? = db.transaction { Users.select { Users.id.eq(id) }.map(rowMapper).firstOrNull() }
+
+    override val update = projection<User, UserEvent> {
+
+        event<UserRegistered> { _, e ->
+            Users.insert {
+                it[id] = e.aggregateId.value
+                it[username] = e.rawEvent.username
+                it[password] = e.rawEvent.password
+                it[locked] = false
+            }
+        }
+
+        event<UsernameChanged> { tx, e ->
+            tx.assert(rowsAffected = 1) {
+                Users.update({ Users.id eq e.aggregateId.value }) {
+                    it[username] = e.rawEvent.username
+                }
+            }
+        }
+
+        event<PasswordChanged> { tx, e ->
+            tx.assert(rowsAffected = 1) {
+                Users.update({ Users.id eq e.aggregateId.value }) {
+                    it[password] = e.rawEvent.password
+                }
+            }
+        }
+
+        event<UserLocked> { tx, e ->
+            tx.assert(rowsAffected = 1) {
+                Users.update({ Users.id eq e.aggregateId.value }) {
+                    it[locked] = true
+                }
+            }
+        }
+
+        event<UserUnlocked> { tx, e ->
+            tx.assert(rowsAffected = 1) {
+                Users.update({ Users.id eq e.aggregateId.value }) {
+                    it[locked] = false
+                }
+            }
         }
     }
 
-    suspend override fun findUserById(id: String): UserDTO? = db.withSession { session ->
-        session.select("SELECT * from usr WHERE id = :id", mapOf("id" to id)) { row ->
-            UserDTO(
-                id = row.string("id"),
-                username = row.string("username"),
-                password = row.string("password"),
-                locked = row.boolean("locked")
-            )
-        }
-    }.firstOrNull()
-
-    override fun <E : DomainEvent> update(event: PersistedEvent<E>, session: Session, tx: Transaction) {
-
-        val rawEvent = event.rawEvent
-
-        val userId = event.aggregateId.value
-
-        when(rawEvent) {
-            is UserRegistered -> execute(createNewUser(userId, rawEvent.username, rawEvent.password), session, tx)
-            is UsernameChanged -> execute(setUsername(userId, rawEvent.username), session, tx)
-            is PasswordChanged -> execute(setPassword(userId, rawEvent.password), session, tx)
-            is UserLocked -> execute(setLocked(userId, true), session, tx)
-            is FailedLoginAttemptsIncremented -> return
-        }
-    }
-
-    private fun createNewUser(userId: String, username: String, password: String): (Session, Transaction) -> Unit = { session, tx ->
-        session.update("INSERT INTO usr(id, username, password, locked) VALUES(:id, :username, :password, :locked)", mapOf(
-            "id" to userId,
-            "username" to username,
-            "password" to password,
-            "locked" to false
-        ))
-    }
-
-    private fun setUsername(userId: String, username: String): (Session, Transaction) -> Unit = { session, _ ->
-        session.update("UPDATE usr SET username = :username WHERE id = :id", mapOf(
-            "id" to userId,
-            "username" to username
-        ))
-    }
-
-    private fun setPassword(userId: String, password: String): (Session, Transaction) -> Unit = { session, _ ->
-        session.update("UPDATE usr SET password = :password WHERE id = :id", mapOf(
-            "id" to userId,
-            "password" to password
-        ))
-    }
-
-    private fun setLocked(userId: String, locked: Boolean): (Session, Transaction) -> Unit = { session, _ ->
-        session.update("UPDATE usr SET locked = :locked WHERE id = :id", mapOf(
-            "id" to userId,
-            "locked" to locked
-        ))
+    private val rowMapper: (ResultRow) -> UserDTO = { row ->
+        UserDTO(
+            id = row[Users.id],
+            username = row[Users.username],
+            password = row[Users.password],
+            locked = row[Users.locked])
     }
 }

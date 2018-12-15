@@ -1,29 +1,32 @@
 package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset
 
 import com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc.Database
+import com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc.upsert
+import org.jetbrains.exposed.sql.Table
+import org.jetbrains.exposed.sql.select
+import com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc.*
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.PostgresOffsetManager.Offsets.primaryKeyConstraintConflictTarget
 
 class PostgresOffsetManager(private val database: Database) : OffsetManager {
 
-    suspend override fun getOffset(offsetKey: String): Long? {
-        return database.withSession { session ->
-            val offset = session.select(
-                "SELECT last_processed_offset FROM event_stream_offsets WHERE name = :name",
-                mapOf("name" to offsetKey)) { row ->
-                row.long("last_processed_offset")
-            }.firstOrNull()
-            offset
-        }
+    object Offsets : Table("event_stream_offsets") {
+        val name = varchar("name", 100).primaryKey()
+        val lastProcessedOffset = long("last_processed_offset")
+        val primaryKeyConstraintConflictTarget = primaryKeyConstraintConflictTarget(name)
     }
 
-    suspend override fun saveOffset(offsetKey: String, offset: Long) {
-        val sql =
-            """
-                INSERT INTO event_stream_offsets (name,last_processed_offset)
-                VALUES (:name,:last_processed_offset)
-                ON CONFLICT ON CONSTRAINT event_stream_offsets_pkey
-                DO UPDATE SET last_processed_offset = :last_processed_offset WHERE event_stream_offsets.name = :name
-            """
+    override suspend fun getOffset(offsetKey: String) = database.transaction {
+        Offsets.slice(Offsets.lastProcessedOffset).select { Offsets.name eq offsetKey }.map { row -> row[Offsets.lastProcessedOffset] }.firstOrNull()
+    }
 
-        database.withSession { it.update(sql, mapOf("name" to offsetKey, "last_processed_offset" to offset)) }
+    override suspend fun saveOffset(offsetKey: String, offset: Long) {
+        database.transaction { tx ->
+            tx.assert(rowsAffected = 1) {
+                Offsets.upsert(primaryKeyConstraintConflictTarget, { Offsets.name eq offsetKey }) {
+                    it[name] = offsetKey
+                    it[lastProcessedOffset] = offset
+                }
+            }
+        }
     }
 }

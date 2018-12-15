@@ -120,7 +120,7 @@ class ExampleModule(val application: Application) : AbstractModule() {
 
         val ds = HikariDataSource(config)
 
-        return Database("dbPool", ds, ds.maximumPoolSize, PostgresDialect())
+        return Database("dbPool", ds, ds.maximumPoolSize)
     }
 
     @Singleton

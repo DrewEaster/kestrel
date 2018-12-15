@@ -4,8 +4,7 @@ import com.dreweaster.ddd.kestrel.application.*
 import com.dreweaster.ddd.kestrel.domain.Aggregate
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
-import com.github.andrewoma.kwery.core.Row
-import java.sql.Timestamp
+import org.jetbrains.exposed.sql.*
 import java.time.Instant
 import kotlin.reflect.KClass
 
@@ -14,167 +13,148 @@ class PostgresBackend(
         private val mapper: EventPayloadMapper,
         private val readModels: List<SynchronousJdbcReadModel>) : Backend {
 
-    private val loadEventsForAggregateInstanceQueryString =
-        """
-            SELECT global_offset, event_id, aggregate_id, aggregate_type, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number
-            FROM domain_event
-            WHERE aggregate_id = :aggregate_id AND aggregate_type = :aggregate_type AND sequence_number > :sequence_number
-            ORDER BY sequence_number
-        """
+    object DomainEvents : Table("domain_event") {
+        val globalOffset  = long("global_offset").primaryKey().autoIncrement()
+        val id = varchar("event_id", 72)
+        val aggregateId = varchar("aggregate_id", 72)
+        val aggregateType = varchar("aggregate_type", 72)
+        val tag = varchar("tag", 100)
+        val causationId = varchar("causation_id", 72)
+        val correlationId = varchar("correlation_id", 72).nullable()
+        val type = varchar("event_type", 255)
+        val version = integer("event_version")
+        val payload = text("event_payload")
+        val timestamp = instant("event_timestamp")
+        val sequenceNumber = long("sequence_number")
+    }
 
-    private val loadEventsForTagAfterInstantQueryString =
-        """
-            SELECT global_offset, event_id, aggregate_id, aggregate_type, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number
-            FROM domain_event
-            WHERE tag = :tag AND event_timestamp > :after_instant
-            ORDER BY global_offset
-            LIMIT :limit
-        """
+    object AggregateRoots : Table("aggregate_root") {
+        val id = varchar("aggregate_id", 72).primaryKey(0)
+        val type = varchar("aggregate_type", 255).primaryKey(1)
+        val version = long("aggregate_version")
+        val primaryKeyConstraintConflictTarget = primaryKeyConstraintConflictTarget(id, type)
+    }
 
-    private val maxOffsetForEventsForTagAfterInstantQueryString =
-        """
-            SELECT MAX(global_offset) as max_offset
-            FROM domain_event
-            WHERE tag = :tag AND event_timestamp > :after_instant
-        """
-
-    private val loadEventsForTagAfterOffsetQueryString =
-        """
-            SELECT global_offset, event_id, aggregate_id, aggregate_type, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number
-            FROM domain_event
-            WHERE tag = :tag AND global_offset > :after_offset
-            ORDER BY global_offset
-            LIMIT :limit
-        """
-
-    private val maxOffsetForEventsForTagAfterOffsetQueryString =
-        """
-            SELECT MAX(global_offset) as max_offset
-            FROM domain_event
-            WHERE tag = :tag AND global_offset > :after_offset
-        """
-
-    private val saveEventsQueryString =
-        """
-            INSERT INTO domain_event(event_id, aggregate_id, aggregate_type, tag, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number)
-            VALUES(:event_id,:aggregate_id,:aggregate_type,:tag,:causation_id,:correlation_id,:event_type,:event_version,:event_payload,:event_timestamp,:sequence_number)
-        """
-
-    private val saveAggregateQueryString =
-        """
-            INSERT INTO aggregate_root (aggregate_id,aggregate_type,aggregate_version)
-            VALUES (:aggregate_id,:aggregate_type,:new_aggregate_version)
-            ON CONFLICT ON CONSTRAINT aggregate_root_pkey
-            DO UPDATE SET aggregate_version = :new_aggregate_version WHERE aggregate_root.aggregate_version = :expected_previous_aggregate_version
-        """
-
-    @Suppress("UNCHECKED_CAST")
-    suspend override fun <E : DomainEvent> loadEvents(aggregateType: Aggregate<*, E, *>, aggregateId: AggregateId): List<PersistedEvent<E>> {
-        return db.withSession { session ->
-            session.select(loadEventsForAggregateInstanceQueryString, mapOf(
-                    "aggregate_id" to aggregateId.value,
-                    "aggregate_type" to aggregateType.blueprint.name,
-                    "sequence_number" to -1
-            )) { rowToPersistedEvent(aggregateType, it) }
+    override suspend fun <E : DomainEvent> loadEvents(aggregateType: Aggregate<*, E, *>, aggregateId: AggregateId): List<PersistedEvent<E>> {
+        return db.transaction {
+            DomainEvents.select {
+                (DomainEvents.aggregateId eq aggregateId.value) and
+                (DomainEvents.aggregateType eq aggregateType.blueprint.name) and
+                (DomainEvents.sequenceNumber greater -1L)
+            }.map { row -> rowToPersistedEvent(aggregateType, row) }
         }
     }
 
-    suspend override fun <E : DomainEvent> loadEvents(aggregateType: Aggregate<*, E, *>, aggregateId: AggregateId, afterSequenceNumber: Long): List<PersistedEvent<E>> {
-        return db.withSession { session ->
-            session.select(loadEventsForAggregateInstanceQueryString, mapOf(
-                    "aggregate_id" to aggregateId.value,
-                    "aggregate_type" to aggregateType.blueprint.name,
-                    "sequence_number" to afterSequenceNumber
-            )) { rowToPersistedEvent(aggregateType, it) }
+    override suspend fun <E : DomainEvent> loadEvents(aggregateType: Aggregate<*, E, *>, aggregateId: AggregateId, afterSequenceNumber: Long): List<PersistedEvent<E>> {
+        return db.transaction {
+            DomainEvents.select {
+                (DomainEvents.aggregateId eq aggregateId.value) and
+                (DomainEvents.aggregateType eq aggregateType.blueprint.name) and
+                (DomainEvents.sequenceNumber greater afterSequenceNumber)
+            }.map { row -> rowToPersistedEvent(aggregateType, row) }
         }
     }
 
-    suspend override fun <E : DomainEvent> loadEventStream(tag: DomainEventTag, afterOffset: Long, batchSize: Int): EventStream {
-        val maxOffset = db.withSession { session ->
-            session.select(maxOffsetForEventsForTagAfterOffsetQueryString, mapOf(
-                    "tag" to tag.value,
-                    "after_offset" to afterOffset
-            )) { it.longOrNull("max_offset") ?: -1 }.firstOrNull() ?: -1
-        }
-        val events = db.withSession { session ->
-            session.select(loadEventsForTagAfterOffsetQueryString, mapOf(
-                    "tag" to tag.value,
-                    "after_offset" to afterOffset,
-                    "limit" to batchSize
-            )) { rowToStreamEvent<E>(tag, it) }
-        }
-        return EventStream(
+    override suspend fun <E : DomainEvent> loadEventStream(tag: DomainEventTag, afterOffset: Long, batchSize: Int): EventStream {
+        return db.transaction {
+            val maxExpr = DomainEvents.globalOffset.max()
+            val maxOffset = DomainEvents.slice(maxExpr).select {
+                (DomainEvents.tag eq tag.value) and
+                (DomainEvents.globalOffset greater afterOffset)
+            }.firstOrNull()?.let { row -> row[maxExpr] } ?: -1L
+
+            val events = DomainEvents.select {
+                (DomainEvents.tag eq tag.value) and
+                (DomainEvents.globalOffset greater afterOffset)
+            }.orderBy(DomainEvents.globalOffset).limit(batchSize).map { row ->
+                rowToStreamEvent<E>(tag, row)
+            }
+
+            EventStream(
                 events = events,
                 tag = tag,
                 batchSize = batchSize,
                 startOffset = events.firstOrNull()?.offset,
                 endOffset = events.lastOrNull()?.offset,
-                maxOffset = if(maxOffset == -1L) events.lastOrNull()?.offset ?: -1L else maxOffset)
+                maxOffset = if(maxOffset == -1L) events.lastOrNull()?.offset ?: -1L else maxOffset
+            )
+        }
     }
 
-    suspend override fun <E : DomainEvent> loadEventStream(tag: DomainEventTag, afterInstant: Instant, batchSize: Int): EventStream {
-        val maxOffset = db.withSession { session ->
-            session.select(maxOffsetForEventsForTagAfterInstantQueryString, mapOf(
-                    "tag" to tag.value,
-                    "after_instant" to Timestamp.from(afterInstant)
-            )) { it.longOrNull("max_offset") ?: -1 }.firstOrNull() ?: -1
-        }
-        val events =  db.withSession { session ->
-            session.select(loadEventsForTagAfterInstantQueryString, mapOf(
-                    "tag" to tag.value,
-                    "after_instant" to Timestamp.from(afterInstant),
-                    "limit" to batchSize
-            )) { rowToStreamEvent<E>(tag, it) }
-        }
-        return EventStream(
+    override suspend fun <E : DomainEvent> loadEventStream(tag: DomainEventTag, afterInstant: Instant, batchSize: Int): EventStream {
+        return db.transaction {
+            val maxExpr = DomainEvents.globalOffset.max()
+            val maxOffset = DomainEvents.slice(maxExpr).select {
+                (DomainEvents.tag eq tag.value) and
+                (DomainEvents.timestamp greater afterInstant)
+            }.firstOrNull()?.let { row -> row[maxExpr] } ?: -1L
+
+            val events = DomainEvents.select {
+                DomainEvents.tag eq tag.value
+                DomainEvents.timestamp greater afterInstant
+            }.orderBy(DomainEvents.globalOffset).limit(batchSize).map { row ->
+                rowToStreamEvent<E>(tag, row)
+            }
+
+            EventStream(
                 events = events,
                 tag = tag,
                 batchSize = batchSize,
                 startOffset = events.firstOrNull()?.offset,
                 endOffset = events.lastOrNull()?.offset,
-                maxOffset = if(maxOffset == -1L) events.lastOrNull()?.offset ?: -1L else maxOffset)
+                maxOffset = if(maxOffset == -1L) events.lastOrNull()?.offset ?: -1L else maxOffset
+            )
+        }
     }
 
-    suspend override fun <E : DomainEvent> saveEvents(aggregateType: Aggregate<*, E, *>, aggregateId: AggregateId, causationId: CausationId, rawEvents: List<E>, expectedSequenceNumber: Long, correlationId: CorrelationId?): List<PersistedEvent<E>> {
+    override suspend fun <E : DomainEvent> saveEvents(aggregateType: Aggregate<*, E, *>, aggregateId: AggregateId, causationId: CausationId, rawEvents: List<E>, expectedSequenceNumber: Long, correlationId: CorrelationId?): List<PersistedEvent<E>> {
         val saveableEvents = rawEvents.fold(Pair(expectedSequenceNumber + 1, emptyList<SaveableEvent<E>>())) { acc, e ->
             Pair(acc.first + 1, acc.second + SaveableEvent(
-                    id = EventId(),
-                    aggregateId = aggregateId,
-                    aggregateType = aggregateType,
-                    causationId = causationId,
-                    correlationId = correlationId,
-                    eventType = e::class as KClass<E>,
-                    rawEvent = e,
-                    serialisationResult = mapper.serialiseEvent(e),
-                    timestamp = Instant.now(),
-                    sequenceNumber = acc.first
+                id = EventId(),
+                aggregateId = aggregateId,
+                aggregateType = aggregateType,
+                causationId = causationId,
+                correlationId = correlationId,
+                eventType = e::class as KClass<E>,
+                rawEvent = e,
+                serialisationResult = mapper.serialiseEvent(e),
+                timestamp = Instant.now(),
+                sequenceNumber = acc.first
             ))
         }
 
         val persistedEvents = saveableEvents.second.map { it.toPersistedEvent() }
 
         db.transaction { tx ->
-            db.withSession { session ->
-                // Save events
-                val saveEventRowsAffected = session.batchUpdate(saveEventsQueryString, saveableEvents.second.map { it.toMap() })
-                if(saveEventRowsAffected.isEmpty()) tx.rollbackOnly = true
 
-                // Save aggregate
-                val saveAggregateRowsAffected = session.update(saveAggregateQueryString, mapOf(
-                        "aggregate_id" to aggregateId.value,
-                        "aggregate_type" to aggregateType.blueprint.name,
-                        "new_aggregate_version" to saveableEvents.second.last().sequenceNumber,
-                        "expected_previous_aggregate_version" to expectedSequenceNumber
-                ))
+            DomainEvents.batchInsert(saveableEvents.second) { event ->
+                this[DomainEvents.id] = event.id.value
+                this[DomainEvents.aggregateId] = event.aggregateId.value
+                this[DomainEvents.aggregateType] = aggregateType.blueprint.name
+                this[DomainEvents.tag] = event.rawEvent.tag.value
+                this[DomainEvents.causationId] = event.causationId.value
+                this[DomainEvents.correlationId] = event.correlationId?.value
+                this[DomainEvents.type] = event.eventType.qualifiedName!!
+                this[DomainEvents.version] = event.serialisationResult.version
+                this[DomainEvents.payload] = event.serialisationResult.payload
+                this[DomainEvents.timestamp] = event.timestamp
+                this[DomainEvents.sequenceNumber] = event.sequenceNumber
+            }
 
-                if(saveAggregateRowsAffected == 0) throw OptimisticConcurrencyException
+            val saveAggregateRowsAffected = AggregateRoots.upsert(AggregateRoots.primaryKeyConstraintConflictTarget, { AggregateRoots.version eq expectedSequenceNumber }) {
+                it[id] = aggregateId.value
+                it[type] = aggregateType.blueprint.name
+                it[version] = saveableEvents.second.last().sequenceNumber
+            }
 
-                // Update synchronous read models
-                readModels.forEach {
-                    if(it.aggregateType() == aggregateType) {
-                        persistedEvents.forEach { e ->
-                            it.update(e, session, tx)
-                        }
+            if(saveAggregateRowsAffected == 0) throw OptimisticConcurrencyException
+
+            // Update synchronous read models
+            readModels.forEach {
+                val projection = it.update
+                if(projection.aggregateType == aggregateType::class) {
+                    persistedEvents.forEach { e ->
+                        projection.handleEvent(tx, e as PersistedEvent<DomainEvent>)
                     }
                 }
             }
@@ -183,50 +163,50 @@ class PostgresBackend(
         return persistedEvents
     }
 
-    private fun <E: DomainEvent> rowToPersistedEvent(aggregateType: Aggregate<*,E,*>, row: Row): PersistedEvent<E> {
+    private fun <E: DomainEvent> rowToPersistedEvent(aggregateType: Aggregate<*,E,*>, row: ResultRow): PersistedEvent<E> {
         val rawEvent = mapper.deserialiseEvent<E>(
-                row.string("event_payload"),
-                row.string("event_type"),
-                row.int("event_version")
+            row[DomainEvents.payload],
+            row[DomainEvents.type],
+            row[DomainEvents.version]
         )
 
         return PersistedEvent(
-                id = EventId(row.string("event_id")),
-                aggregateId = AggregateId(row.string("aggregate_id")),
-                aggregateType = aggregateType,
-                causationId = CausationId(row.string("causation_id")),
-                correlationId = row.stringOrNull("correlation_id")?.let { CorrelationId(it) },
-                eventType = rawEvent::class as KClass<E>,
-                eventVersion = row.int("event_version"),
-                rawEvent = rawEvent,
-                timestamp = row.timestamp("event_timestamp").toInstant(),
-                sequenceNumber = row.long("sequence_number")
+            id = EventId(row[DomainEvents.id]),
+            aggregateId = AggregateId(row[DomainEvents.aggregateId]),
+            aggregateType = aggregateType,
+            causationId = CausationId(row[DomainEvents.causationId]),
+            correlationId = row[DomainEvents.correlationId]?.let { CorrelationId(it) },
+            eventType = rawEvent::class as KClass<E>,
+            eventVersion = row[DomainEvents.version],
+            rawEvent = rawEvent,
+            timestamp = row[DomainEvents.timestamp],
+            sequenceNumber = row[DomainEvents.sequenceNumber]
         )
     }
 
-    private fun <E: DomainEvent> rowToStreamEvent(tag: DomainEventTag, row: Row): StreamEvent {
+    private fun <E: DomainEvent> rowToStreamEvent(tag: DomainEventTag, row: ResultRow): StreamEvent {
         // Need to load then re-serialise event to ensure format is migrated if necessary
         val rawEvent = mapper.deserialiseEvent<E>(
-                row.string("event_payload"),
-                row.string("event_type"),
-                row.int("event_version")
+            row[DomainEvents.payload],
+            row[DomainEvents.type],
+            row[DomainEvents.version]
         )
 
         val serialisedPayload = mapper.serialiseEvent(rawEvent)
 
         return StreamEvent(
-                offset = row.long("global_offset"),
-                id = EventId(row.string("event_id")),
-                aggregateId = AggregateId(row.string("aggregate_id")),
-                aggregateType = row.string("aggregate_type"),
-                causationId = CausationId(row.string("causation_id")),
-                correlationId = row.stringOrNull("correlation_id")?.let { CorrelationId(it) },
-                eventType = rawEvent::class.qualifiedName!!,
-                eventTag = tag,
-                payloadContentType = serialisedPayload.contentType,
-                serialisedPayload = serialisedPayload.payload,
-                timestamp = row.timestamp("event_timestamp").toInstant(),
-                sequenceNumber = row.long("sequence_number")
+            offset = row[DomainEvents.globalOffset],
+            id = EventId(row[DomainEvents.id]),
+            aggregateId = AggregateId(row[DomainEvents.aggregateId]),
+            aggregateType = row[DomainEvents.aggregateType],
+            causationId = CausationId(row[DomainEvents.causationId]),
+            correlationId = row[DomainEvents.correlationId]?.let { CorrelationId(it) },
+            eventType = rawEvent::class.qualifiedName!!,
+            eventTag = tag,
+            payloadContentType = serialisedPayload.contentType,
+            serialisedPayload = serialisedPayload.payload,
+            timestamp = row[DomainEvents.timestamp],
+            sequenceNumber = row[DomainEvents.sequenceNumber]
         )
     }
 
@@ -242,32 +222,18 @@ class PostgresBackend(
          val timestamp: Instant,
          val sequenceNumber: Long) {
 
-         fun toMap() = mapOf(
-                 "event_id" to id.value,
-                 "aggregate_id" to aggregateId.value,
-                 "aggregate_type" to aggregateType.blueprint.name,
-                 "tag" to rawEvent.tag.value,
-                 "causation_id" to causationId.value,
-                 "correlation_id" to correlationId?.value,
-                 "event_type" to eventType.qualifiedName!!,
-                 "event_version" to serialisationResult.version,
-                 "event_payload" to serialisationResult.payload,
-                 "event_timestamp" to Timestamp.from(timestamp),
-                 "sequence_number" to sequenceNumber
-         )
-
          fun toPersistedEvent() =
-                 PersistedEvent(
-                        id = EventId(),
-                        aggregateId = aggregateId,
-                        aggregateType = aggregateType,
-                        causationId = causationId,
-                        correlationId = correlationId,
-                        eventType = eventType,
-                        eventVersion = serialisationResult.version,
-                        rawEvent = rawEvent,
-                        timestamp = Instant.now(),
-                        sequenceNumber = sequenceNumber
-                 )
+             PersistedEvent(
+                id = EventId(),
+                aggregateId = aggregateId,
+                aggregateType = aggregateType,
+                causationId = causationId,
+                correlationId = correlationId,
+                eventType = eventType,
+                eventVersion = serialisationResult.version,
+                rawEvent = rawEvent,
+                timestamp = Instant.now(),
+                sequenceNumber = sequenceNumber
+             )
     }
 }

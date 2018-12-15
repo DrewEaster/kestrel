@@ -1,95 +1,125 @@
 package com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc
 
-import com.github.andrewoma.kwery.core.DefaultSession
-import com.github.andrewoma.kwery.core.Session
-import com.github.andrewoma.kwery.core.dialect.Dialect
-import com.github.andrewoma.kwery.core.interceptor.LoggingInterceptor
 import kotlinx.coroutines.experimental.newFixedThreadPoolContext
 import kotlinx.coroutines.experimental.run
-import java.sql.Connection
+import org.jetbrains.exposed.sql.*
+import org.jetbrains.exposed.sql.Database
+import org.jetbrains.exposed.sql.statements.InsertStatement
+import org.jetbrains.exposed.sql.transactions.TransactionManager
+import org.jetbrains.exposed.sql.transactions.transaction
+import java.time.Instant
 import javax.sql.DataSource
-import kotlin.coroutines.experimental.AbstractCoroutineContextElement
-import kotlin.coroutines.experimental.CoroutineContext
-import kotlin.coroutines.experimental.intrinsics.suspendCoroutineOrReturn
+import org.joda.time.DateTime as JodaDateTime
+import java.time.Instant as JavaInstant
 
-object TransactionRollbackException : RuntimeException()
+class Database(name: String, dataSource: DataSource, poolSize: Int) {
 
-class Database(name: String, dataSource: DataSource, poolSize: Int, val dialect: Dialect) {
+    private val db = Database.connect(dataSource)
 
-    val context = newFixedThreadPoolContext(nThreads = poolSize, name = name) + DataSourceContext(dataSource)
+    private val context = newFixedThreadPoolContext(nThreads = poolSize, name = name)
 
-    suspend fun <T> transaction(block: suspend (Transaction) -> T): T {
-        val transaction = currentTransaction()
-        return if (transaction == null) {
-            newTransaction(block)
-        } else {
-            block(transaction)
-        }
-    }
-
-    suspend fun currentTransaction(): Transaction? = coroutineContext()[TransactionContext]
-
-    private suspend fun <T> newTransaction(block: suspend (Transaction) -> T): T = run(context) {
-        val connection = context.dataSource.connection
-        try {
-            connection.autoCommit = false
-            val transactionContext = TransactionContext(connection)
-            val newContext = context + transactionContext
-            run(newContext) {
-                val response = block(transactionContext)
-                if (transactionContext.rollbackOnly) {
-                    throw TransactionRollbackException
-                } else {
-                    connection.commit()
+    suspend fun <T> transaction(block: (DatabaseTransaction) -> T): T =
+        run(context) {
+            transaction(db) { block(object : DatabaseTransaction {
+                override fun rollback() {
+                    throw DatabaseTransaction.TransactionRollbackException
                 }
-                response
-            }
-        } catch (throwable: Throwable) {
-            connection.rollback()
-            throw throwable
-        } finally {
-            connection.close()
+            })}
+        }
+}
+
+interface DatabaseTransaction {
+
+    object TransactionRollbackException : RuntimeException()
+
+    fun rollback()
+
+    fun assert(rowsAffected: Int, block: () -> Int) {
+        val result = block()
+        if(result != rowsAffected) {
+            rollback()
+        }
+    }
+}
+
+fun Table.instant(name: String): Column<Instant> = registerColumn(name, InstantColumnType(true))
+
+private fun JodaDateTime.toInstantJava() = JavaInstant.ofEpochMilli(this.millis)
+private fun JavaInstant.toJodaDateTime() = JodaDateTime(this.toEpochMilli())
+
+class InstantColumnType(time: Boolean) : ColumnType() {
+    private val delegate = DateColumnType(time)
+
+    override fun sqlType(): String = delegate.sqlType()
+
+    override fun nonNullValueToString(value: Any): String = when (value) {
+        is JavaInstant -> delegate.nonNullValueToString(value.toJodaDateTime())
+        else -> delegate.nonNullValueToString(value)
+    }
+
+    override fun valueFromDB(value: Any): Any {
+        val fromDb = when (value) {
+            is JavaInstant -> delegate.valueFromDB(value.toJodaDateTime())
+            else -> delegate.valueFromDB(value)
+        }
+        return when (fromDb) {
+            is JodaDateTime -> fromDb.toInstantJava()
+            else -> error("failed to convert value to Instant")
         }
     }
 
-    suspend fun <T> withConnection(block: suspend (Connection) -> T): T {
-        val connection = coroutineContext().connection
-        return if (connection == null) {
-            run(context) {
-                val newConnection = context.dataSource.connection
-                try {
-                    block(newConnection)
-                } finally {
-                    newConnection.close()
-                }
-            }
-        } else {
-            block(connection)
+    override fun notNullValueToDB(value: Any): Any = when (value) {
+        is JavaInstant -> delegate.notNullValueToDB(value.toJodaDateTime())
+        else -> delegate.notNullValueToDB(value)
+    }
+}
+
+sealed class ConflictTarget(val name: String, val columns: List<Column<*>>) { abstract fun toSql(): String }
+class PrimaryKeyConstraintTarget(table: Table, columns: List<Column<*>>): ConflictTarget("${table.nameInDatabaseCase()}_pkey", columns) {
+    override fun toSql() = "ON CONFLICT ON CONSTRAINT $name"
+}
+class ColumnTarget(column: Column<*>): ConflictTarget(column.name, listOf(column)) {
+    override fun toSql() = "ON CONFLICT($name)"
+}
+class IndexTarget(index: Index): ConflictTarget(index.indexName, index.columns) {
+    override fun toSql() = "ON CONFLICT($name)"
+}
+
+class UpsertStatement<Key : Any>(table: Table, val conflictTarget: ConflictTarget, val where: Op<Boolean>? = null) : InsertStatement<Key>(table, false) {
+
+    override fun prepareSQL(transaction: Transaction) = buildString {
+        append(super.prepareSQL(transaction))
+        append(" ")
+        append(conflictTarget.toSql())
+        append(" DO UPDATE SET ")
+        values.keys.filter { it !in conflictTarget.columns }.joinTo(this) { "${transaction.identity(it)}=EXCLUDED.${transaction.identity(it)}" }
+
+        val builder = QueryBuilder(true)
+        where?.let { append(" WHERE " + it.toSQL(builder)) }
+    }
+
+    override fun arguments(): List<List<Pair<IColumnType, Any?>>> {
+        val superArgs = super.arguments().first()
+
+        QueryBuilder(true).run {
+            where?.toSQL(this)
+            return listOf(superArgs + args)
         }
     }
-
-    suspend fun <T> withSession(block: suspend (Session) -> T): T = withConnection { connection ->
-        block(DefaultSession(connection, dialect, interceptor = LoggingInterceptor()))
-    }
 }
 
-interface Transaction {
-    var rollbackOnly: Boolean
+fun <T : Table> T.upsert(conflictTarget: ConflictTarget, where: (SqlExpressionBuilder.()->Op<Boolean>)? = null, body: T.(UpsertStatement<Number>) -> Unit): Int {
+    val query = UpsertStatement<Number>(this, conflictTarget, where?.let { SqlExpressionBuilder.it() })
+    body(query)
+    return query.execute(TransactionManager.current())!!
 }
 
-private suspend fun coroutineContext(): CoroutineContext = suspendCoroutineOrReturn { it.context }
-
-private class TransactionContext(val connection: Connection, override var rollbackOnly: Boolean = false) :
-        AbstractCoroutineContextElement(TransactionContext), Transaction {
-    companion object Key : CoroutineContext.Key<TransactionContext>
+fun Table.indexR(customIndexName: String? = null, isUnique: Boolean = false, vararg columns: Column<*>): Index {
+    val index = Index(columns.toList(), isUnique, customIndexName)
+    indices.add(index)
+    return index
 }
 
-private class DataSourceContext(val dataSource: DataSource) : AbstractCoroutineContextElement(DataSourceContext) {
-    companion object Key : CoroutineContext.Key<DataSourceContext>
-}
+fun Table.uniqueIndexR(customIndexName: String? = null, vararg columns: Column<*>): Index = indexR(customIndexName, true, *columns)
 
-private val CoroutineContext.dataSource
-    get() = this[DataSourceContext]?.dataSource ?: throw IllegalStateException("DataSourceContext not in coroutine scope")
-
-private val CoroutineContext.connection
-    get() = this[TransactionContext]?.connection
+fun Table.primaryKeyConstraintConflictTarget(vararg columns: Column<*>): ConflictTarget = PrimaryKeyConstraintTarget(this, columns.toList())

@@ -8,7 +8,9 @@ import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import io.ktor.application.ApplicationCall
+import io.ktor.http.ContentType
 import io.ktor.response.respond
+import io.ktor.response.respondText
 import java.io.InputStreamReader
 
 abstract class BaseRoutes {
@@ -18,7 +20,7 @@ abstract class BaseRoutes {
         val jsonParser = JsonParser()
     }
 
-    suspend fun ApplicationCall.respondWithJson(obj: Any) = respond(gson.toJson(obj))
+    suspend fun ApplicationCall.respondWithJson(obj: Any) = respondText(gson.toJson(obj), ContentType.Application.Json)
 
     suspend fun ApplicationCall.receiveJson() = jsonParser.parse(InputStreamReader(request.receiveContent().inputStream())) as JsonObject
 

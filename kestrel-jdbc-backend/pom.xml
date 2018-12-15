@@ -11,6 +11,15 @@
 
     <artifactId>kestrel-jdbc-backend</artifactId>
 
+    <repositories>
+        <repository>
+            <id>jcenter</id>
+            <name>jcenter</name>
+            <url>http://jcenter.bintray.com</url>
+        </repository>
+    </repositories>
+
+
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
@@ -36,6 +45,16 @@
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
             <version>2.7.3</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jetbrains.exposed</groupId>
+            <artifactId>exposed</artifactId>
+            <version>0.11.2</version>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <version>1.4.197</version>
         </dependency>
     </dependencies>
 

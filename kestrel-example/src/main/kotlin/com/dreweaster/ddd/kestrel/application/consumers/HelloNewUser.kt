@@ -22,7 +22,6 @@ class HelloNewUser @Inject constructor(boundedContexts: BoundedContextEventStrea
                 event<UserRegistered> { event, _ ->
                     LOG.info("Hello ${event.username}!")
                 }
-
             }
         }.start()
     }
