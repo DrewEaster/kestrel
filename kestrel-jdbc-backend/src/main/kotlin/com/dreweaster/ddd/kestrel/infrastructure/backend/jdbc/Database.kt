@@ -24,9 +24,15 @@ class Database(name: String, dataSource: DataSource, poolSize: Int) {
                 override fun rollback() {
                     throw DatabaseTransaction.TransactionRollbackException
                 }
+
+                override fun rollback(throwable: Throwable) {
+                   throw throwable
+                }
             })}
         }
 }
+
+class UnexpectedNumberOfRowsAffectedInUpdate(val actual: Int, val expected: Int) : RuntimeException()
 
 interface DatabaseTransaction {
 
@@ -34,12 +40,7 @@ interface DatabaseTransaction {
 
     fun rollback()
 
-    fun assert(rowsAffected: Int, block: () -> Int) {
-        val result = block()
-        if(result != rowsAffected) {
-            rollback()
-        }
-    }
+    fun rollback(throwable: Throwable)
 }
 
 fun Table.instant(name: String): Column<Instant> = registerColumn(name, InstantColumnType(true))

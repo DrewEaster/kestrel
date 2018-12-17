@@ -3,15 +3,16 @@ package com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc
 import com.dreweaster.ddd.kestrel.application.PersistedEvent
 import com.dreweaster.ddd.kestrel.domain.Aggregate
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
+import org.jetbrains.exposed.sql.transactions.TransactionManager
 import kotlin.reflect.KClass
 
 abstract class SynchronousJdbcReadModel {
 
     class EventHandlers {
 
-        var handlers: Map<KClass<out DomainEvent>, ((DatabaseTransaction, PersistedEvent<DomainEvent>) -> Unit)> = emptyMap()
+        var handlers: Map<KClass<out DomainEvent>, ((PersistedEvent<DomainEvent>) -> Unit)> = emptyMap()
 
-        fun <E: DomainEvent> withHandler(type: KClass<E>, handler: (DatabaseTransaction, PersistedEvent<DomainEvent>) -> Unit): EventHandlers {
+        fun <E: DomainEvent> withHandler(type: KClass<E>, handler: (PersistedEvent<DomainEvent>) -> Unit): EventHandlers {
             handlers += type to handler
             return this
         }
@@ -25,8 +26,10 @@ abstract class SynchronousJdbcReadModel {
         return projection
     }
 
-    infix fun Int.assertEquals(number: Int) {
-
+    infix fun Int.eq(number: Int) {
+        if(this != number) {
+            throw UnexpectedNumberOfRowsAffectedInUpdate(number, this)
+        }
     }
 }
 
@@ -35,11 +38,11 @@ class Projection<E: DomainEvent, A: Aggregate<*, E, *>>(val aggregateType: KClas
 
     val eventHandlers = SynchronousJdbcReadModel.EventHandlers()
 
-    inline fun <reified Evt: E> event(noinline handler: (DatabaseTransaction, PersistedEvent<Evt>) -> Unit) {
-        eventHandlers.withHandler(Evt::class, handler as (DatabaseTransaction, PersistedEvent<DomainEvent>) -> Unit)
+    inline fun <reified Evt: E> event(noinline handler: (PersistedEvent<Evt>) -> Unit) {
+        eventHandlers.withHandler(Evt::class, handler as (PersistedEvent<DomainEvent>) -> Unit)
     }
 
-    fun handleEvent(tx: DatabaseTransaction, e: PersistedEvent<DomainEvent>) {
-        eventHandlers.handlers[e.rawEvent::class]?.invoke(tx, e)
+    fun handleEvent(e: PersistedEvent<DomainEvent>) {
+        eventHandlers.handlers[e.rawEvent::class]?.invoke(e)
     }
 }

@@ -21,12 +21,11 @@ class PostgresOffsetManager(private val database: Database) : OffsetManager {
 
     override suspend fun saveOffset(offsetKey: String, offset: Long) {
         database.transaction { tx ->
-            tx.assert(rowsAffected = 1) {
-                Offsets.upsert(primaryKeyConstraintConflictTarget, { Offsets.name eq offsetKey }) {
-                    it[name] = offsetKey
-                    it[lastProcessedOffset] = offset
-                }
+            val rowsAffected = Offsets.upsert(primaryKeyConstraintConflictTarget, { Offsets.name eq offsetKey }) {
+                it[name] = offsetKey
+                it[lastProcessedOffset] = offset
             }
+            if(rowsAffected != 1) tx.rollback(UnexpectedNumberOfRowsAffectedInUpdate(rowsAffected, 1))
         }
     }
 }

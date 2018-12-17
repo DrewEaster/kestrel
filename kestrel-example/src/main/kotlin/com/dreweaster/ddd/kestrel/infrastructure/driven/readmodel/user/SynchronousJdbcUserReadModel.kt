@@ -23,7 +23,7 @@ class SynchronousJdbcUserReadModel @Inject() constructor(private val db: Databas
 
     override val update = projection<User, UserEvent> {
 
-        event<UserRegistered> { _, e ->
+        event<UserRegistered> { e ->
             Users.insert {
                 it[id] = e.aggregateId.value
                 it[username] = e.rawEvent.username
@@ -32,36 +32,20 @@ class SynchronousJdbcUserReadModel @Inject() constructor(private val db: Databas
             }
         }
 
-        event<UsernameChanged> { tx, e ->
-            tx.assert(rowsAffected = 1) {
-                Users.update({ Users.id eq e.aggregateId.value }) {
-                    it[username] = e.rawEvent.username
-                }
-            }
+        event<UsernameChanged> { e ->
+            Users.update({ Users.id eq e.aggregateId.value }) { it[username] = e.rawEvent.username } eq 1
         }
 
-        event<PasswordChanged> { tx, e ->
-            tx.assert(rowsAffected = 1) {
-                Users.update({ Users.id eq e.aggregateId.value }) {
-                    it[password] = e.rawEvent.password
-                }
-            }
+        event<PasswordChanged> { e ->
+            Users.update({ Users.id eq e.aggregateId.value }) { it[password] = e.rawEvent.password } eq 1
         }
 
-        event<UserLocked> { tx, e ->
-            tx.assert(rowsAffected = 1) {
-                Users.update({ Users.id eq e.aggregateId.value }) {
-                    it[locked] = true
-                }
-            }
+        event<UserLocked> { e ->
+            Users.update({ Users.id eq e.aggregateId.value }) { it[locked] = true } eq 1
         }
 
-        event<UserUnlocked> { tx, e ->
-            tx.assert(rowsAffected = 1) {
-                Users.update({ Users.id eq e.aggregateId.value }) {
-                    it[locked] = false
-                }
-            }
+        event<UserUnlocked> { e ->
+            Users.update({ Users.id eq e.aggregateId.value }) { it[locked] = false } eq 1
         }
     }
 

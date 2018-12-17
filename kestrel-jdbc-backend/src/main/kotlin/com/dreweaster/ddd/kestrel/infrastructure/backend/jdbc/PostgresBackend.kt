@@ -125,7 +125,7 @@ class PostgresBackend(
 
         val persistedEvents = saveableEvents.second.map { it.toPersistedEvent() }
 
-        db.transaction { tx ->
+        db.transaction { _ ->
 
             DomainEvents.batchInsert(saveableEvents.second) { event ->
                 this[DomainEvents.id] = event.id.value
@@ -154,7 +154,7 @@ class PostgresBackend(
                 val projection = it.update
                 if(projection.aggregateType == aggregateType::class) {
                     persistedEvents.forEach { e ->
-                        projection.handleEvent(tx, e as PersistedEvent<DomainEvent>)
+                        projection.handleEvent(e as PersistedEvent<DomainEvent>)
                     }
                 }
             }
