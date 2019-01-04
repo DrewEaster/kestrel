@@ -22,7 +22,7 @@ class PostgresBackend(
         val id = varchar("event_id", 72)
         val aggregateId = varchar("aggregate_id", 72)
         val aggregateType = varchar("aggregate_type", 72)
-        val tag = varchar("tags", 100)
+        val tag = varchar("tag", 100)
         val causationId = varchar("causation_id", 72)
         val correlationId = varchar("correlation_id", 72).nullable()
         val type = varchar("event_type", 255)
@@ -44,7 +44,7 @@ class PostgresBackend(
         val id = varchar("event_id", 72)
         val processManagerCorrelationId = varchar("process_manager_correlation_id", 72)
         val processManagerType = varchar("process_manager_type", 72)
-        val tag = varchar("tags", 100)
+        val tag = varchar("tag", 100)
         val type = varchar("event_type", 255)
         val version = integer("event_version")
         val payload = text("event_payload")
@@ -124,6 +124,8 @@ class PostgresBackend(
     override suspend fun findIdsForProcessManagersAwaitingProcessing(pageable: Pageable): Page<ProcessManagerCorrelationId> {
         TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
     }
+
+
 
     // TODO: Will need to implement snapshot retrieval
     // TODO: Should this try to loop through executing all outstanding unprocessed events, or just the next one?

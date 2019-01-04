@@ -1,10 +1,13 @@
 package com.dreweaster.ddd.kestrel.infrastructure
 
 import com.dreweaster.ddd.kestrel.application.*
+import com.dreweaster.ddd.kestrel.application.pagination.Page
+import com.dreweaster.ddd.kestrel.application.pagination.Pageable
 import com.dreweaster.ddd.kestrel.domain.Aggregate
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
-import kotlinx.coroutines.experimental.delay
+import com.dreweaster.ddd.kestrel.domain.ProcessManager
+import io.vavr.control.Try
 import java.time.Instant
 import java.util.*
 import kotlin.reflect.KClass
@@ -19,36 +22,28 @@ open class InMemoryBackend : Backend {
         events = emptyList()
     }
 
-    suspend override fun <E : DomainEvent> loadEvents(
-            aggregate: Aggregate<*, E, *>,
-            aggregateId: AggregateId): List<PersistedEvent<E>> {
-        return persistedEventsFor(aggregate, aggregateId)
+    override suspend fun <E : DomainEvent, A : Aggregate<*, E, *>> persistAggregate(
+            aggregateType: A,
+            aggregateId: AggregateId,
+            commandHandler: suspend (PersistedAggregate<E, A>) -> GeneratedEvents<E>): Try<List<PersistedEvent<E>>> {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
     }
 
-    suspend override fun <E : DomainEvent> loadEvents(
-            aggregateType: Aggregate<*, E, *>,
+    override suspend fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(
+            aggregateType: A,
+            aggregateId: AggregateId): List<PersistedEvent<E>> {
+        return persistedEventsFor(aggregateType, aggregateId)
+    }
+
+    override suspend fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(
+            aggregateType: A,
             aggregateId: AggregateId,
             afterSequenceNumber: Long): List<PersistedEvent<E>> {
         return persistedEventsFor(aggregateType, aggregateId).filter { it.sequenceNumber > afterSequenceNumber }
     }
 
-    suspend override fun <E : DomainEvent> loadEventStream(
-            tag: DomainEventTag,
-            afterOffset: Long,
-            batchSize: Int): EventStream {
-        throw UnsupportedOperationException()
-    }
-
-    suspend override fun <E : DomainEvent> loadEventStream(
-            tag: DomainEventTag,
-            afterInstant: Instant,
-            batchSize: Int): EventStream {
-        throw UnsupportedOperationException()
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    suspend override fun <E : DomainEvent> saveEvents(
-            aggregateType: Aggregate<*, E, *>,
+    override suspend fun <E : DomainEvent, A : Aggregate<*, E, *>> saveEvents(
+            aggregateType: A,
             aggregateId: AggregateId,
             causationId: CausationId,
             rawEvents: List<E>,
@@ -61,17 +56,17 @@ open class InMemoryBackend : Backend {
 
         val persistedEvents = rawEvents.fold(Pair<Long, List<PersistedEvent<E>>>(expectedSequenceNumber + 1, emptyList())) { acc, e ->
             Pair(acc.first + 1, acc.second +
-                PersistedEvent(
-                    EventId(UUID.randomUUID().toString()),
-                    aggregateType,
-                    aggregateId,
-                    causationId,
-                    correlationId,
-                    e::class as KClass<E>,
-                    1,
-                    e,
-                    Instant.now(),
-                    acc.first)
+                    PersistedEvent(
+                            EventId(UUID.randomUUID().toString()),
+                            aggregateType,
+                            aggregateId,
+                            causationId,
+                            correlationId,
+                            e::class as KClass<E>,
+                            1,
+                            e,
+                            Instant.now(),
+                            acc.first)
             )
         }.second
 
@@ -81,6 +76,32 @@ open class InMemoryBackend : Backend {
         }
 
         return persistedEvents
+    }
+
+    override suspend fun <E : DomainEvent, P : ProcessManager<*, E, *>> persistProcessManagerEvent(eventId: EventId, rawEvent: E, processManagerType: P, processManagerCorrelationId: ProcessManagerCorrelationId, causationId: CausationId) {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    }
+
+    override suspend fun findIdsForProcessManagersAwaitingProcessing(pageable: Pageable): Page<ProcessManagerCorrelationId> {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    }
+
+    override suspend fun <E : DomainEvent, P : ProcessManager<*, E, *>> executeProcessManager(type: P, id: ProcessManagerCorrelationId, force: Boolean, retryStrategy: ProcessManagerRetryStrategy, processHandler: suspend (PersistedProcessManager<E, P>) -> ProcessManagerProcessingResult): ProcessManagerProcessingResult {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    }
+
+    suspend override fun <E : DomainEvent> loadEventStream(
+            tags: Set<DomainEventTag>,
+            afterOffset: Long,
+            batchSize: Int): EventStream {
+        throw UnsupportedOperationException()
+    }
+
+    suspend override fun <E : DomainEvent> loadEventStream(
+            tags: Set<DomainEventTag>,
+            afterInstant: Instant,
+            batchSize: Int): EventStream {
+        throw UnsupportedOperationException()
     }
 
     @Suppress("UNCHECKED_CAST")

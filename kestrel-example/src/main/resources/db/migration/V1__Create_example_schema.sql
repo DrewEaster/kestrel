@@ -35,10 +35,10 @@ CREATE TABLE process_manager_domain_event (
     event_version                  INT          NOT NULL,
     event_payload                  TEXT         NOT NULL,
     event_timestamp                TIMESTAMP    NOT NULL,
-    sequence_number                BIGINT       NOT NULL,
+    sequence_number                BIGINT       NOT NULL
 );
 
-CREATE UNIQUE INDEX event_id_unique_index ON process_manager_domain_event (event_id, process_manager_correlation_id)
+CREATE UNIQUE INDEX event_id_unique_index ON process_manager_domain_event (event_id, process_manager_correlation_id);
 CREATE INDEX events_for_process_manager_instance_idx ON process_manager_domain_event (process_manager_type, process_manager_correlation_id);
 
 CREATE TABLE process_manager (

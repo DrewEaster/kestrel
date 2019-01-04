@@ -291,17 +291,18 @@ class MockBackend : InMemoryBackend() {
         saveErrorState = false
     }
 
-    suspend override fun <E : DomainEvent> loadEvents(aggregate: Aggregate<*, E, *>, aggregateId: AggregateId): List<PersistedEvent<E>> {
+    override suspend fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId): List<PersistedEvent<E>> {
         if (loadErrorState) {
             throw IllegalStateException()
         }
-        return super.loadEvents(aggregate, aggregateId)
+        return super.loadEvents(aggregateType, aggregateId)
     }
 
-    suspend override fun <E : DomainEvent> saveEvents(aggregateType: Aggregate<*, E, *>, aggregateId: AggregateId, causationId: CausationId, rawEvents: List<E>, expectedSequenceNumber: Long, correlationId: CorrelationId?): List<PersistedEvent<E>> =
-        when {
+    override suspend fun <E : DomainEvent, A : Aggregate<*, E, *>> saveEvents(aggregateType: A, aggregateId: AggregateId, causationId: CausationId, rawEvents: List<E>, expectedSequenceNumber: Long, correlationId: CorrelationId?): List<PersistedEvent<E>> {
+        return when {
             optimisticConcurrencyExceptionOnSave -> throw OptimisticConcurrencyException
             saveErrorState -> throw IllegalStateException()
             else -> super.saveEvents(aggregateType, aggregateId, causationId, rawEvents, expectedSequenceNumber, correlationId)
         }
+    }
 }
