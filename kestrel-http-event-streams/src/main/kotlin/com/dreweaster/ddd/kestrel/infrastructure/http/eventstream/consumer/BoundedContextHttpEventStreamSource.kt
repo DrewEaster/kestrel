@@ -54,7 +54,7 @@ interface BoundedContextHttpEventStreamSourceConfiguration {
     fun enabled(subscriptionName: String): Boolean
 }
 
-// TODO: Need to factor skipped events into batch size - i.e. always process minimum of batch size even if that means fetching multiple batches
+// TODO: Need to factor skipped events into batch size - i.e. always event minimum of batch size even if that means fetching multiple batches
 class BoundedContextHttpEventStreamSource(
         val httpClient: AsyncHttpClient,
         val configuration: BoundedContextHttpEventStreamSourceConfiguration,

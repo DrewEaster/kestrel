@@ -194,7 +194,7 @@ class EventsourcedDomainModelTests : WordSpec() {
                 }
             }
 
-            "process a duplicate command if the deduplication strategy says it's ok to process it" {
+            "event a duplicate command if the deduplication strategy says it's ok to event it" {
                 runBlocking {
                     // Given
                     deduplicationStrategyFactory.toggleDeduplicationOff()

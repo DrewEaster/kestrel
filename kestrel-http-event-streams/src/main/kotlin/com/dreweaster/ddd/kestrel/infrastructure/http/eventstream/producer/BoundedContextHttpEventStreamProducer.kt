@@ -22,12 +22,12 @@ class BoundedContextHttpJsonEventStreamProducer(val backend: Backend) {
     private suspend fun fetchEventStream(query: HttpJsonEventQuery): EventStream {
         return if(query.afterTimestamp != null) {
             backend.loadEventStream<DomainEvent>(
-                    query.tags.first(),
+                    query.tags,
                     query.afterTimestamp,
                     query.batchSize)
         } else {
             backend.loadEventStream<DomainEvent>(
-                    query.tags.first(),
+                    query.tags,
                     query.afterOffset ?: -1L,
                     query.batchSize)
         }
@@ -35,7 +35,7 @@ class BoundedContextHttpJsonEventStreamProducer(val backend: Backend) {
 
     private fun convertStreamToJsonResponse(stream: EventStream) =
         jsonObject(
-            "tag" to stream.tag.value,
+            "tags" to jsonArray(stream.tags.map { it.value }),
             "batch_size" to stream.batchSize,
             "start_offset" to stream.startOffset,
             "end_offset" to stream.endOffset,

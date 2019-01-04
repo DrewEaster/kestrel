@@ -35,22 +35,24 @@ CREATE TABLE process_manager_domain_event (
     event_version                  INT          NOT NULL,
     event_payload                  TEXT         NOT NULL,
     event_timestamp                TIMESTAMP    NOT NULL,
-    sequence_number                BIGINT       NOT NULL
+    sequence_number                BIGINT       NOT NULL,
 );
 
+CREATE UNIQUE INDEX event_id_unique_index ON process_manager_domain_event (event_id, process_manager_correlation_id)
 CREATE INDEX events_for_process_manager_instance_idx ON process_manager_domain_event (process_manager_type, process_manager_correlation_id);
 
 CREATE TABLE process_manager (
     process_manager_correlation_id  VARCHAR(72)              NOT NULL,
     process_manager_type            VARCHAR(255)             NOT NULL,
-    min_sequence_number             BIGINT                   NOT NULL, -- This is used to 'reset' the PM for indefinitely running PMs
-    max_sequence_number             BIGINT                   NOT NULL, -- if reset, min_seq_num will be > max_seq_num
-    last_processed_sequence_number  BIGINT                   NOT NULL,
-    oldest_unprocessed_timestamp    TIMESTAMP WITH TIME ZONE NULL,
-    has_unprocessed_events          BOOLEAN                  NOT NULL,
-    retry_count                     INT                      NULL,
+    min_sequence_number             BIGINT                   NOT NULL DEFAULT 0, -- This is used to 'reset' the PM for indefinitely running PMs
+    max_sequence_number             BIGINT                   NOT NULL DEFAULT 0, -- if reset, min_seq_num will be > max_seq_num
+    last_processed_sequence_number  BIGINT                   NOT NULL DEFAULT -1,
+    oldest_unprocessed_timestamp    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    has_unprocessed_events          BOOLEAN                  NOT NULL DEFAULT true,
+    retry_count                     INT                      NOT NULL DEFAULT 0,
     retry_after                     TIMESTAMP WITH TIME ZONE NULL,
-    suspended                       BOOLEAN                  NOT NULL,
+    suspended                       BOOLEAN                  NOT NULL DEFAULT false,
+    last_process_attempted_at       TIMESTAMP WITH TIME ZONE NULL,
     PRIMARY KEY (process_manager_correlation_id, process_manager_type)
 );
 

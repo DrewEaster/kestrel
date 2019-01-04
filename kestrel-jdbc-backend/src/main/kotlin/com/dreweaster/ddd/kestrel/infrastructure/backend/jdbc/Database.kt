@@ -109,6 +109,22 @@ class UpsertStatement<Key : Any>(table: Table, val conflictTarget: ConflictTarge
     }
 }
 
+class InsertOnConflictDoNothingStatement<Key : Any>(table: Table, val conflictTarget: ConflictTarget) : InsertStatement<Key>(table, false) {
+
+    override fun prepareSQL(transaction: Transaction) = buildString {
+        append(super.prepareSQL(transaction))
+        append(" ")
+        append(conflictTarget.toSql())
+        append(" DO NOTHING")
+    }
+}
+
+fun <T: Table> T.insertOnConflictDoNothing(conflictTarget: ConflictTarget, body: T.(InsertOnConflictDoNothingStatement<Number>) -> Unit): Int {
+    val query = InsertOnConflictDoNothingStatement<Number>(this, conflictTarget)
+    body(query)
+    return query.execute(TransactionManager.current())!!
+}
+
 fun <T : Table> T.upsert(conflictTarget: ConflictTarget, where: (SqlExpressionBuilder.()->Op<Boolean>)? = null, body: T.(UpsertStatement<Number>) -> Unit): Int {
     val query = UpsertStatement<Number>(this, conflictTarget, where?.let { SqlExpressionBuilder.it() })
     body(query)
@@ -124,3 +140,5 @@ fun Table.indexR(customIndexName: String? = null, isUnique: Boolean = false, var
 fun Table.uniqueIndexR(customIndexName: String? = null, vararg columns: Column<*>): Index = indexR(customIndexName, true, *columns)
 
 fun Table.primaryKeyConstraintConflictTarget(vararg columns: Column<*>): ConflictTarget = PrimaryKeyConstraintTarget(this, columns.toList())
+
+fun Table.uniqueIndexConflictTarget(customIndexName: String? = null, vararg columns: Column<*>): IndexTarget = IndexTarget(uniqueIndexR(customIndexName, *columns))

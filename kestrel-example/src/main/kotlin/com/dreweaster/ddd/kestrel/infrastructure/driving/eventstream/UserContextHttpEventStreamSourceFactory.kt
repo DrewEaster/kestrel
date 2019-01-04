@@ -16,7 +16,7 @@ object UserContextHttpEventStreamSourceFactory: BoundedContextHttpEventStreamSou
             event<PasswordChanged>("com.dreweaster.ddd.kestrel.domain.aggregates.user.PasswordChanged", PasswordChangedMapper.deserialiser)
             event<UsernameChanged>("com.dreweaster.ddd.kestrel.domain.aggregates.user.UsernameChanged", UsernameChangedMapper.deserialiser)
             event<UserLocked>("com.dreweaster.ddd.kestrel.domain.aggregates.user.UserLocked") { UserLocked }
-            event<UserUnlocked>("com.dreweaster.ddd.kestrel.domain.aggregates.user.UserUnlocked") { UserUnlocked}
+            event<UserUnlocked>("com.dreweaster.ddd.kestrel.domain.aggregates.user.UserUnlocked") { UserUnlocked }
             event<FailedLoginAttemptsIncremented>("com.dreweaster.ddd.kestrel.domain.aggregates.user.FailedLoginAttemptsIncremented") { FailedLoginAttemptsIncremented }
         }
     }

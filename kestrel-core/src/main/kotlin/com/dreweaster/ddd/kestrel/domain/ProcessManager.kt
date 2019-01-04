@@ -21,8 +21,6 @@ class Suspend: RuntimeException {
     constructor (failureCode: String, message: String, cause: Throwable) : super(message, cause) { this.failureCode = failureCode }
 }
 
-abstract class ProcessManagerSuspendState() : ProcessManagerState
-
 interface ProcessManager<C: ProcessManagerContext, E: DomainEvent, S: ProcessManagerState> {
 
     val blueprint: ProcessManagerBlueprint<C,E,S>
@@ -80,7 +78,7 @@ class ProcessManagerBehaviour<C: ProcessManagerContext, E: DomainEvent, S: Proce
     var capturedHandlers : Map<KClass<E>,((C, State, E) -> ProcessManagerStepBuilder<*, C, E, S>)> = emptyMap()
 
     @Suppress("UNCHECKED_CAST")
-    inline fun <reified Evt: E> process(noinline handler: (C, State, Evt) -> ProcessManagerStepBuilder<*, C, E, S>) {
+    inline fun <reified Evt: E> event(noinline handler: (C, State, Evt) -> ProcessManagerStepBuilder<*, C, E, S>) {
         capturedHandlers += Evt::class as KClass<E> to handler as (C, State, E) -> ProcessManagerStepBuilder<*, C, E, S>
     }
 

@@ -15,7 +15,7 @@ data class HttpJsonEventQuery(
 
     companion object {
         fun from(urlQueryParameters: Map<String, List<String>>): HttpJsonEventQuery {
-            val tags = urlQueryParameters["tag"]?.first()?.split(",")?.map { DomainEventTag(it) } ?: throw IllegalArgumentException("")
+            val tags = urlQueryParameters["tags"]?.first()?.split(",")?.map { DomainEventTag(it) } ?: throw IllegalArgumentException("")
             val afterTimestamp = urlQueryParameters["after_timestamp"]?.firstOrNull()?.let { instantFromUTCString(it) }
             val afterOffset = urlQueryParameters["after_offset"]?.firstOrNull()?.toLong()
             val batchSize = urlQueryParameters["batch_size"]?.firstOrNull()?.toInt() ?: 10
@@ -24,7 +24,7 @@ data class HttpJsonEventQuery(
     }
 
     fun eventsUrlFor(protocol: String, hostname: String, port: Int, path: String) = when {
-        afterTimestamp != null -> URL("$protocol://$hostname:$port$path?tag=${tags.map { it.value }.joinToString(",")}&batch_size=$batchSize&after_timestamp=${URLEncoder.encode(instantToUTCString(afterTimestamp), "UTF-8")}")
-        else -> URL("$protocol://$hostname:$port$path?tag=${tags.map { it.value }.joinToString(",")}&batch_size=$batchSize&after_offset=${afterOffset ?: -1}")
+        afterTimestamp != null -> URL("$protocol://$hostname:$port$path?tags=${tags.map { it.value }.joinToString(",")}&batch_size=$batchSize&after_timestamp=${URLEncoder.encode(instantToUTCString(afterTimestamp), "UTF-8")}")
+        else -> URL("$protocol://$hostname:$port$path?tags=${tags.map { it.value }.joinToString(",")}&batch_size=$batchSize&after_offset=${afterOffset ?: -1}")
     }
 }
