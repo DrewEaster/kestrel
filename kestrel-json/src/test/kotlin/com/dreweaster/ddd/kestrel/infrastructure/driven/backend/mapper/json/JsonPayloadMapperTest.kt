@@ -7,7 +7,7 @@ import io.kotlintest.specs.FeatureSpec
 import com.github.salomonbrys.kotson.*
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-
+import io.kotlintest.matchers.shouldBe
 
 class JsonEventPayloadMapperTests : FeatureSpec() {
 

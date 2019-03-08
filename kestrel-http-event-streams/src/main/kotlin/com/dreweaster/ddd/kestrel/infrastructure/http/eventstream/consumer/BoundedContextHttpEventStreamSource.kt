@@ -6,27 +6,24 @@ import com.dreweaster.ddd.kestrel.application.job.Job
 import com.dreweaster.ddd.kestrel.application.job.JobManager
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
-import com.dreweaster.ddd.kestrel.infrastructure.cluster.LocalClusterManager
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.HttpJsonEventQuery
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.InMemoryOffsetManager
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.OffsetManager
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.reporting.BoundedContextHttpEventStreamSourceProbe
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.reporting.BoundedContextHttpEventStreamSourceReporter
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.reporting.ReportingContext
-import com.dreweaster.ddd.kestrel.infrastructure.job.ScheduledExecutorServiceJobManager
 import com.github.salomonbrys.kotson.get
 import com.github.salomonbrys.kotson.long
 import com.github.salomonbrys.kotson.nullString
 import com.github.salomonbrys.kotson.string
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import kotlinx.coroutines.experimental.CancellableContinuation
-import kotlinx.coroutines.experimental.suspendCancellableCoroutine
+import kotlinx.coroutines.CancellableContinuation
+import kotlinx.coroutines.suspendCancellableCoroutine
 import org.asynchttpclient.*
 import org.slf4j.LoggerFactory
 import java.time.Duration
 import java.time.Instant
-import java.util.concurrent.Executors
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlin.reflect.KClass
 
 typealias FullyQualifiedClassName = String

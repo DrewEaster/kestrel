@@ -9,8 +9,8 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import io.ktor.application.ApplicationCall
 import io.ktor.http.ContentType
-import io.ktor.response.respond
 import io.ktor.response.respondText
+import kotlinx.coroutines.io.jvm.javaio.toInputStream
 import java.io.InputStreamReader
 
 abstract class BaseRoutes {
@@ -22,7 +22,7 @@ abstract class BaseRoutes {
 
     suspend fun ApplicationCall.respondWithJson(obj: Any) = respondText(gson.toJson(obj), ContentType.Application.Json)
 
-    suspend fun ApplicationCall.receiveJson() = jsonParser.parse(InputStreamReader(request.receiveContent().inputStream())) as JsonObject
+    suspend fun ApplicationCall.receiveJson() = jsonParser.parse(InputStreamReader(request.receiveChannel().toInputStream())) as JsonObject
 
     // Define extension to Int
     infix suspend fun <C: DomainCommand, E: DomainEvent> C.sendTo(aggregateRoot: AggregateRoot<C, E>): CommandHandlingResult<E> = aggregateRoot.handleCommand(this)

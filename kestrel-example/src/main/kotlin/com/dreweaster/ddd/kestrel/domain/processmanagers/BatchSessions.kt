@@ -6,7 +6,7 @@ import com.dreweaster.ddd.kestrel.domain.aggregates.user.RegisterUser
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.User
 import com.dreweaster.ddd.kestrel.infrastructure.InMemoryBackend
 import io.vavr.control.Try
-import kotlinx.coroutines.experimental.runBlocking
+import kotlinx.coroutines.runBlocking
 import java.time.Duration
 import java.time.Instant
 

@@ -1,7 +1,7 @@
 package com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc
 
-import kotlinx.coroutines.experimental.newFixedThreadPoolContext
-import kotlinx.coroutines.experimental.run
+import kotlinx.coroutines.newFixedThreadPoolContext
+import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.statements.InsertStatement
@@ -19,7 +19,7 @@ class Database(name: String, dataSource: DataSource, poolSize: Int) {
     private val context = newFixedThreadPoolContext(nThreads = poolSize, name = name)
 
     suspend fun <T> transaction(block: (DatabaseTransaction) -> T): T =
-        run(context) {
+        withContext(context) {
             transaction(db) { block(object : DatabaseTransaction {
                 override fun rollback() {
                     throw DatabaseTransaction.TransactionRollbackException

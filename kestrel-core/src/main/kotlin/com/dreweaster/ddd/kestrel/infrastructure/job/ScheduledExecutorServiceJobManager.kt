@@ -3,9 +3,9 @@ package com.dreweaster.ddd.kestrel.infrastructure.job
 import com.dreweaster.ddd.kestrel.application.job.Job
 import com.dreweaster.ddd.kestrel.application.job.JobManager
 import com.dreweaster.ddd.kestrel.infrastructure.cluster.ClusterManager
-import kotlinx.coroutines.experimental.newSingleThreadContext
-import kotlinx.coroutines.experimental.runBlocking
-import kotlinx.coroutines.experimental.withTimeout
+import kotlinx.coroutines.newSingleThreadContext
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.slf4j.LoggerFactory
 import java.time.Duration
 import java.util.concurrent.ScheduledExecutorService
