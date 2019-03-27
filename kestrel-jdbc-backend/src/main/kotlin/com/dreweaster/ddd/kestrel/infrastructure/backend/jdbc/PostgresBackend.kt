@@ -309,7 +309,7 @@ class PostgresBackend(
                 (DomainEvents.aggregateId eq aggregateId.value) and
                 (DomainEvents.aggregateType eq aggregateType.blueprint.name) and
                 (DomainEvents.sequenceNumber greater -1L)
-            }.map { row -> rowToPersistedEvent(aggregateType, row) }
+            }.orderBy(DomainEvents.sequenceNumber).map { row -> rowToPersistedEvent(aggregateType, row) }
         }
     }
 
@@ -319,7 +319,7 @@ class PostgresBackend(
                 (DomainEvents.aggregateId eq aggregateId.value) and
                 (DomainEvents.aggregateType eq aggregateType.blueprint.name) and
                 (DomainEvents.sequenceNumber greater afterSequenceNumber)
-            }.map { row -> rowToPersistedEvent(aggregateType, row) }
+            }.orderBy(DomainEvents.sequenceNumber).map { row -> rowToPersistedEvent(aggregateType, row) }
         }
     }
 
