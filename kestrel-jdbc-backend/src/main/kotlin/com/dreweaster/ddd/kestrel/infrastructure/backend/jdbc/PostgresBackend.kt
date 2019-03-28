@@ -19,12 +19,12 @@ class PostgresBackend(
 
     object DomainEvents : Table("domain_event") {
         val globalOffset  = long("global_offset").primaryKey().autoIncrement()
-        val id = varchar("event_id", 72)
-        val aggregateId = varchar("aggregate_id", 72)
-        val aggregateType = varchar("aggregate_type", 72)
+        val id = varchar("event_id", 144)
+        val aggregateId = varchar("aggregate_id", 144)
+        val aggregateType = varchar("aggregate_type", 144)
         val tag = varchar("tag", 100)
-        val causationId = varchar("causation_id", 72)
-        val correlationId = varchar("correlation_id", 72).nullable()
+        val causationId = varchar("causation_id", 144)
+        val correlationId = varchar("correlation_id", 144).nullable()
         val type = varchar("event_type", 255)
         val version = integer("event_version")
         val payload = text("event_payload")
@@ -33,7 +33,7 @@ class PostgresBackend(
     }
 
     object AggregateRoots : Table("aggregate_root") {
-        val id = varchar("aggregate_id", 72).primaryKey(0)
+        val id = varchar("aggregate_id", 144).primaryKey(0)
         val type = varchar("aggregate_type", 255).primaryKey(1)
         val version = long("aggregate_version")
         val primaryKeyConstraintConflictTarget = primaryKeyConstraintConflictTarget(id, type)
@@ -41,9 +41,9 @@ class PostgresBackend(
 
     object ProcessManagerDomainEvents: Table("process_manager_domain_events") {
         val globalOffset  = long("global_offset").primaryKey().autoIncrement()
-        val id = varchar("event_id", 72)
-        val processManagerCorrelationId = varchar("process_manager_correlation_id", 72)
-        val processManagerType = varchar("process_manager_type", 72)
+        val id = varchar("event_id", 144)
+        val processManagerCorrelationId = varchar("process_manager_correlation_id", 144)
+        val processManagerType = varchar("process_manager_type", 144)
         val tag = varchar("tag", 100)
         val type = varchar("event_type", 255)
         val version = integer("event_version")
@@ -54,8 +54,8 @@ class PostgresBackend(
     }
 
     object ProcessManagers: Table("process_manager") {
-        val id = varchar("process_manager_correlation_id", 72)
-        val type = varchar("process_manager_type", 72)
+        val id = varchar("process_manager_correlation_id", 144)
+        val type = varchar("process_manager_type", 144)
         val primaryKeyConstraintConflictTarget = primaryKeyConstraintConflictTarget(id, type)
         val minSequenceNumber = long("min_sequence_number")
         val maxSequenceNumber = long("max_sequence_number")
@@ -70,7 +70,7 @@ class PostgresBackend(
 
     object ProcessManagerFailures: Table("process_manager_failure") {
         val id = long("failure_id").primaryKey().autoIncrement()
-        val processManagerCorrelationId = varchar("process_manager_correlation_id", 72)
+        val processManagerCorrelationId = varchar("process_manager_correlation_id", 144)
         val sequenceNumber = long("sequence_number")
         val failureCode = varchar("failure_code", 36)
         val stackTrace = text("stack_trace").nullable()
