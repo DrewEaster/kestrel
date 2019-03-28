@@ -1,6 +1,6 @@
 package com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc
 
-import kotlinx.coroutines.newFixedThreadPoolContext
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.Database
@@ -12,11 +12,9 @@ import javax.sql.DataSource
 import org.joda.time.DateTime as JodaDateTime
 import java.time.Instant as JavaInstant
 
-class Database(name: String, dataSource: DataSource, poolSize: Int) {
+class Database(name: String, dataSource: DataSource, private val context: CoroutineDispatcher) {
 
     private val db = Database.connect(dataSource)
-
-    private val context = newFixedThreadPoolContext(nThreads = poolSize, name = name)
 
     suspend fun <T> transaction(block: (DatabaseTransaction) -> T): T =
         withContext(context) {

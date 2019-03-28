@@ -33,6 +33,7 @@ import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import io.ktor.application.Application
 import io.ktor.config.ApplicationConfig
+import kotlinx.coroutines.Dispatchers
 import org.asynchttpclient.DefaultAsyncHttpClient
 import java.time.Duration
 import java.util.concurrent.Executors
@@ -120,7 +121,7 @@ class ExampleModule(val application: Application) : AbstractModule() {
 
         val ds = HikariDataSource(config)
 
-        return Database("dbPool", ds, ds.maximumPoolSize)
+        return Database("dbPool", ds, Dispatchers.IO)
     }
 
     @Singleton
