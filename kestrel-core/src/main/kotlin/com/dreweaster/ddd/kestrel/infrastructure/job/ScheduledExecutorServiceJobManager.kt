@@ -3,7 +3,6 @@ package com.dreweaster.ddd.kestrel.infrastructure.job
 import com.dreweaster.ddd.kestrel.application.job.Job
 import com.dreweaster.ddd.kestrel.application.job.JobManager
 import com.dreweaster.ddd.kestrel.infrastructure.cluster.ClusterManager
-import kotlinx.coroutines.newSingleThreadContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.slf4j.LoggerFactory
@@ -22,9 +21,8 @@ class ScheduledExecutorServiceJobManager(
         // It's okay to block waiting for future result as we're using a dedicated job execution context
         // It's important that we wait for job to complete execution so that it's not rescheduled if the previous invocation hasn't yet completed
         scheduler.scheduleAtFixedRate({
-            val threadContext = newSingleThreadContext(job.name)
             try {
-                runBlocking(threadContext) {
+                runBlocking {
                     // TODO: Make timeout configurable - defaulting to 10x the repeat schedule
                     withTimeout(repeatSchedule.toMillis() * 10) {
                         ClusterSingletonJobWrapper(job).execute()
@@ -32,12 +30,6 @@ class ScheduledExecutorServiceJobManager(
                 }
             } catch(ex: Exception) {
                 LOG.error("Job execution failed: '${job.name}'", ex)
-            } finally {
-                try {
-                    threadContext.close()
-                } catch(ex: Exception) {
-                    LOG.error("Failed to close thread context for job: '${job.name}'", ex)
-                }
             }
         }, repeatSchedule.toMillis(), repeatSchedule.toMillis(), TimeUnit.MILLISECONDS)
     }
