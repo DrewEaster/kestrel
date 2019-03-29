@@ -68,6 +68,18 @@
             <artifactId>netty-handler</artifactId>
             <version>4.1.24.Final</version>
         </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+        </dependency>
+        <!--<dependency>-->
+            <!--<groupId>org.jetbrains.exposed</groupId>-->
+            <!--<artifactId>exposed</artifactId>-->
+        <!--</dependency>-->
     </dependencies>
 
 </project>

@@ -30,6 +30,9 @@
         <bintray.repo>projects</bintray.repo>
         <bintray.package>kestrel</bintray.package>
         <slf4j.version>1.7.25</slf4j.version>
+        <exposed.version>0.13.5</exposed.version>
+        <postgres.driver.version>42.2.5</postgres.driver.version>
+        <hikaricp.version>3.3.1</hikaricp.version>
     </properties>
 
     <scm>
@@ -104,6 +107,21 @@
                 <artifactId>kotlintest</artifactId>
                 <version>2.0.7</version>
                 <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.postgresql</groupId>
+                <artifactId>postgresql</artifactId>
+                <version>${postgres.driver.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.zaxxer</groupId>
+                <artifactId>HikariCP</artifactId>
+                <version>${hikaricp.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains.exposed</groupId>
+                <artifactId>exposed</artifactId>
+                <version>${exposed.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
