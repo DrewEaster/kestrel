@@ -1,6 +1,7 @@
 package com.dreweaster.ddd.kestrel.application.eventstream
 
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
+import io.reactivex.Completable
 
 abstract class StatelessEventConsumer(val boundedContexts: BoundedContextEventStreamSources) {
 
@@ -17,8 +18,8 @@ abstract class StatelessEventConsumer(val boundedContexts: BoundedContextEventSt
         fun start() {
             subscribers.forEach { subscriber ->
                 boundedContexts[subscriber.boundedContextName]?.subscribe(
-                        subscriber.eventHandlersBuilder.build(),
-                        EventStreamSubscriberConfiguration(subscriber.name, subscriber.edenPolicy))
+                    subscriber.eventHandlersBuilder.build(),
+                    EventStreamSubscriberConfiguration(subscriber.name, subscriber.edenPolicy))
             }
         }
 
@@ -33,7 +34,7 @@ abstract class StatelessEventConsumer(val boundedContexts: BoundedContextEventSt
 
     class Subscriber(val eventHandlersBuilder: BoundedContextEventStreamSource.EventHandlersBuilder) {
 
-        inline fun <reified E: DomainEvent> event(noinline handler: suspend (E, EventMetadata) -> Unit) {
+        inline fun <reified E: DomainEvent> event(noinline handler: (E, EventMetadata) -> Completable) {
             eventHandlersBuilder.withHandler(E::class, handler)
         }
     }

@@ -12,15 +12,16 @@ import com.dreweaster.ddd.kestrel.domain.Aggregate
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
 import com.dreweaster.ddd.kestrel.domain.ProcessManager
+import io.reactiverse.rxjava.pgclient.PgPool
 import io.vavr.control.Try
 import org.jetbrains.exposed.sql.*
 import java.time.Instant
 import kotlin.reflect.KClass
 
-class PostgresBackend(
-        private val db: Database,
+class PostgresRxBackend(
+        private val db: PgPool,
         private val mapper: EventPayloadMapper,
-        private val readModels: List<SynchronousJdbcReadModel>) : Backend {
+        private val readModels: List<SynchronousJdbcReadModel>) : RxBackend {
 
     object DomainEvents : Table("domain_event") {
         val globalOffset  = long("global_offset").primaryKey().autoIncrement()

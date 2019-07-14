@@ -37,7 +37,7 @@ interface CommandHandlingProbe<C : DomainCommand, E : DomainEvent, S: AggregateS
 
     fun finishedPersistingEvents(unexpectedException: Throwable)
 
-    fun finishedHandling(result: CommandHandlingResult<E>)
+    fun finishedHandling(result: CommandHandlingResult<C, E>)
 }
 
 class ReportingContext<C : DomainCommand, E : DomainEvent, S: AggregateState>(
@@ -91,7 +91,7 @@ class ReportingContext<C : DomainCommand, E : DomainEvent, S: AggregateState>(
         probes.forEach { it.finishedPersistingEvents(unexpectedException) }
     }
 
-    override fun finishedHandling(result: CommandHandlingResult<E>) {
+    override fun finishedHandling(result: CommandHandlingResult<C, E>) {
         probes.forEach { it.finishedHandling(result) }
     }
 }
@@ -144,7 +144,7 @@ object ConsoleReporter : DomainModelReporter {
             println("Failed to persist events: $unexpectedException")
         }
 
-        override fun finishedHandling(result: CommandHandlingResult<E>) {
+        override fun finishedHandling(result: CommandHandlingResult<C, E>) {
             println("Finished command handling with result: $result")
         }
     }

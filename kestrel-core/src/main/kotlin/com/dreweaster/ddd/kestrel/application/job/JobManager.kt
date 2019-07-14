@@ -1,12 +1,13 @@
 package com.dreweaster.ddd.kestrel.application.job
 
+import io.reactivex.Completable
 import java.time.Duration
 
 interface Job {
 
     val name: String
 
-    suspend fun execute()
+    fun execute(): Completable
 }
 
 interface JobManager {

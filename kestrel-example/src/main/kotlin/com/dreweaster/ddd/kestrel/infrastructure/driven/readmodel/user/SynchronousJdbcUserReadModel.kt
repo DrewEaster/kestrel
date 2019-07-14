@@ -3,57 +3,69 @@ package com.dreweaster.ddd.kestrel.infrastructure.driven.readmodel.user
 import com.dreweaster.ddd.kestrel.application.readmodel.user.UserDTO
 import com.dreweaster.ddd.kestrel.application.readmodel.user.UserReadModel
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.*
-import com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc.Database
-import com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc.SynchronousJdbcReadModel
+import com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc.AtomicDatabaseProjection
+import com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc.DB
 import com.google.inject.Inject
-import org.jetbrains.exposed.sql.*
+import io.r2dbc.spi.Row
 
-class SynchronousJdbcUserReadModel @Inject() constructor(private val db: Database) : SynchronousJdbcReadModel(), UserReadModel {
+import reactor.core.publisher.Mono
 
-    object Users : Table("usr") {
-        val id: Column<String> = varchar("id", 72)
-        val username: Column<String> = varchar("username", 100)
-        val password: Column<String> = varchar("password", 20)
-        val locked: Column<Boolean> = bool("locked")
+class AtomicUserProjection @Inject constructor(private val database: DB): AtomicDatabaseProjection(), UserReadModel {
+
+    private val userDtoMapper: (Row) -> UserDTO = {
+        UserDTO(
+            id = it["id"].string,
+            username = it["username"].string,
+            password = it["password"].string,
+            locked = it["locked"].bool
+        )
     }
-
-    override suspend fun findAllUsers(): List<UserDTO> = db.transaction { Users.selectAll().map(rowMapper) }
-
-    override suspend fun findUserById(id: String): UserDTO? = db.transaction { Users.select { Users.id.eq(id) }.map(rowMapper).firstOrNull() }
 
     override val update = projection<User, UserEvent> {
 
         event<UserRegistered> { e ->
-            Users.insert {
-                it[id] = e.aggregateId.value
-                it[username] = e.rawEvent.username
-                it[password] = e.rawEvent.password
-                it[locked] = false
-            }
+
+            "INSERT into usr (id, username, password, locked) VALUES ($1, $2, $3, $4)".params(
+                e.aggregateId.value,
+                e.rawEvent.username,
+                e.rawEvent.password,
+                false).expect(1)
         }
 
         event<UsernameChanged> { e ->
-            Users.update({ Users.id eq e.aggregateId.value }) { it[username] = e.rawEvent.username } eq 1
+
+            "UPDATE usr SET username = $1 WHERE id = $2".params(
+                e.aggregateId.value,
+                e.rawEvent.username).expect(1)
         }
 
         event<PasswordChanged> { e ->
-            Users.update({ Users.id eq e.aggregateId.value }) { it[password] = e.rawEvent.password } eq 1
+
+            "UPDATE usr SET password = $1 WHERE id = $2".params(
+                e.aggregateId.value,
+                e.rawEvent.password).expect(1)
         }
 
         event<UserLocked> { e ->
-            Users.update({ Users.id eq e.aggregateId.value }) { it[locked] = true } eq 1
+
+            "UPDATE usr SET locked = $1 WHERE id = $2".params(
+                e.aggregateId.value,
+                true).expect(1)
         }
 
         event<UserUnlocked> { e ->
-            Users.update({ Users.id eq e.aggregateId.value }) { it[locked] = false } eq 1
+
+            "UPDATE usr SET locked = $1 WHERE id = $2".params(
+                e.aggregateId.value,
+                false).expect(1)
         }
     }
 
-    private val rowMapper: (ResultRow) -> UserDTO = { row ->
-        UserDTO(
-            id = row[Users.id],
-            username = row[Users.username],
-            password = row[Users.password],
-            locked = row[Users.locked])
-    }
+    override fun findAllUsers(): Mono<List<UserDTO>> = database.inTransaction { tx ->
+        tx.query("SELECT * from users") { userDtoMapper(it) }
+    }.collectList()
+
+    override fun findUserById(id: String): Mono<UserDTO?> = database.inTransaction { tx ->
+        tx.query("SELECT * from usr where id = $1", id) { userDtoMapper(it) }
+    }.collectList().map { it.firstOrNull() }
 }

@@ -6,14 +6,14 @@ import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.OffsetManager
 import com.google.gson.JsonObject
-import org.asynchttpclient.AsyncHttpClient
+import io.ktor.client.HttpClient
 
 abstract class BoundedContextHttpEventStreamSourceFactory(val name: BoundedContextName) {
 
     protected abstract val mappers: EventMappers
 
     fun createHttpEventStreamSource(
-            httpClient: AsyncHttpClient,
+            httpClient: HttpClient,
             configuration: BoundedContextHttpEventStreamSourceConfiguration,
             offsetManager: OffsetManager,
             jobManager: JobManager): BoundedContextHttpEventStreamSource {

@@ -1,19 +1,20 @@
 package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset
 
+import io.reactivex.Completable
+import io.reactivex.Maybe
+
 interface OffsetManager {
 
-    suspend fun getOffset(offsetKey: String): Long?
+    fun getOffset(offsetKey: String): Maybe<Long>
 
-    suspend fun saveOffset(offsetKey: String, offset: Long)
+    fun saveOffset(offsetKey: String, offset: Long): Completable
 }
 
 object InMemoryOffsetManager : OffsetManager {
 
-    private var offsetsMap: Map<String,Long> = emptyMap()
+    private var offsetsMap: Map<String, Long> = emptyMap()
 
-    suspend override fun getOffset(offsetKey: String) = offsetsMap[offsetKey]
+    override fun getOffset(offsetKey: String) = offsetsMap[offsetKey]?.let { Maybe.just(it) } ?: Maybe.empty()
 
-    suspend override fun saveOffset(offsetKey: String, offset: Long) {
-        offsetsMap += offsetKey to offset
-    }
+    override fun saveOffset(offsetKey: String, offset: Long) = Completable.fromRunnable { offsetsMap += offsetKey to offset }
 }

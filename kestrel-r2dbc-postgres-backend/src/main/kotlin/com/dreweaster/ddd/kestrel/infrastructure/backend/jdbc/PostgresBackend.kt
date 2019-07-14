@@ -160,7 +160,7 @@ class PostgresBackend(
                 (ProcessManagers.id eq id.value) and
                 (ProcessManagers.type eq type.blueprint.name) and
                 (ProcessManagers.hasUnprocessedEvents eq true) and
-                (ProcessManagers.suspended eq false)
+                (ProcessManagers.suspended eq false).
             }.firstOrNull()?.let { row -> Triple(
                 row[ProcessManagers.minSequenceNumber],
                 row[ProcessManagers.lastProcessedSequenceNumber],
@@ -185,6 +185,11 @@ class PostgresBackend(
                         sequenceNumber = row[ProcessManagerDomainEvents.sequenceNumber]
                     )
                 }
+
+               ProcessManagers
+                   .selectAll()
+                   .apply { if (events.isNotEmpty()) andWhere { ProcessManagers.minSequenceNumber eq 0L } }
+                   .apply { if (events.isEmpty()) andWhere { ProcessManagers.minSequenceNumber greater 1L } }
 
                 PersistedProcessManager(
                     processManagerCorrelationId = id,
@@ -366,7 +371,7 @@ class PostgresBackend(
                 it[id] = aggregateId.value
                 it[type] = aggregateType.blueprint.name
                 it[version] = saveableEvents.second.last().sequenceNumber
-            }
+            }.
 
             if(saveAggregateRowsAffected == 0) throw OptimisticConcurrencyException
 

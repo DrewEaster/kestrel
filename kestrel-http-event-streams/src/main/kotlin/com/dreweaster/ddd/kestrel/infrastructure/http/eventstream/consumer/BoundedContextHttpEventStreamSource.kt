@@ -1,29 +1,29 @@
 package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer
 
-import com.dreweaster.ddd.kestrel.application.*
 import com.dreweaster.ddd.kestrel.application.eventstream.*
 import com.dreweaster.ddd.kestrel.application.job.Job
 import com.dreweaster.ddd.kestrel.application.job.JobManager
+import com.dreweaster.ddd.kestrel.application.AggregateId
+import com.dreweaster.ddd.kestrel.application.CausationId
+import com.dreweaster.ddd.kestrel.application.CorrelationId
+import com.dreweaster.ddd.kestrel.application.EventId
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.HttpJsonEventQuery
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.OffsetManager
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.reporting.BoundedContextHttpEventStreamSourceReporter
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.reporting.ReportingContext
-import com.github.salomonbrys.kotson.get
 import com.github.salomonbrys.kotson.long
 import com.github.salomonbrys.kotson.nullString
 import com.github.salomonbrys.kotson.string
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import kotlinx.coroutines.CancellableContinuation
-import kotlinx.coroutines.suspendCancellableCoroutine
-import org.asynchttpclient.*
+import io.ktor.client.HttpClient
+import io.ktor.client.request.get
+import io.ktor.client.request.url
 import org.slf4j.LoggerFactory
 import java.time.Duration
 import java.time.Instant
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 import kotlin.reflect.KClass
 
 typealias FullyQualifiedClassName = String
@@ -53,7 +53,7 @@ interface BoundedContextHttpEventStreamSourceConfiguration {
 
 // TODO: Need to factor skipped events into batch size - i.e. always event minimum of batch size even if that means fetching multiple batches
 class BoundedContextHttpEventStreamSource(
-        val httpClient: AsyncHttpClient,
+        val httpClient: HttpClient,
         val configuration: BoundedContextHttpEventStreamSourceConfiguration,
         eventMappers: List<HttpJsonEventMapper<*>>,
         val offsetManager: OffsetManager,
@@ -169,10 +169,10 @@ class BoundedContextHttpEventStreamSource(
 
         private suspend fun fetchEvents(lastProcessedOffset: Long?): List<JsonObject> {
             probe.startedFetchingEventStream()
+
             val request = requestFactory.createRequest(lastProcessedOffset)
             return try {
-                val response = httpClient.execute(request)
-                val jsonBody = jsonParser.parse(response.responseBody)
+                val jsonBody = request(httpClient)
                 val maxOffset = jsonBody["max_offset"].asLong
                 probe.finishedFetchingEventStream(maxOffset)
                 jsonBody["events"].asJsonArray.toList().map { it.asJsonObject }
@@ -184,30 +184,13 @@ class BoundedContextHttpEventStreamSource(
 
         private fun extractEventMetadata(eventJson: JsonObject) =
             EventMetadata(
-                EventId(eventJson["id"].string),
-                AggregateId(eventJson["aggregate_id"].string),
-                CausationId(eventJson["causation_id"].string),
+                    EventId(eventJson["id"].string),
+                    AggregateId(eventJson["aggregate_id"].string),
+                    CausationId(eventJson["causation_id"].string),
                 eventJson["correlation_id"].nullString?.let { CorrelationId(it) },
                 eventJson["sequence_number"].long
             )
-
-        private suspend fun AsyncHttpClient.execute(request: Request): Response {
-            return suspendCancellableCoroutine { cont: CancellableContinuation<Response> ->
-                this.executeRequest(request, object : AsyncCompletionHandler<Unit>() {
-                    override fun onCompleted(response: Response) {
-                        cont.resume(response)
-                    }
-
-                    override fun onThrowable(ex: Throwable) {
-                        cont.resumeWithException(ex)
-                    }
-                })
-                Unit
-            }
-        }
     }
-
-
 }
 
 sealed class HttpEventStreamSubscriptionEdenPolicy {
@@ -225,7 +208,7 @@ sealed class HttpEventStreamSubscriptionEdenPolicy {
             batchSize: Int): RequestFactory
 
     interface RequestFactory {
-        fun createRequest(lastProcessedOffset: Long?): Request
+        fun createRequest(lastProcessedOffset: Long?): suspend (HttpClient) -> JsonObject
     }
 }
 
@@ -236,7 +219,7 @@ object BeginningOfTime : HttpEventStreamSubscriptionEdenPolicy() {
             batchSize: Int): RequestFactory {
 
         return object : RequestFactory {
-            override fun createRequest(lastProcessedOffset: Long?): Request {
+            override fun createRequest(lastProcessedOffset: Long?): suspend (HttpClient) -> JsonObject {
                 val query = HttpJsonEventQuery(
                         tags = tags,
                         afterOffset = lastProcessedOffset ?: -1L,
@@ -250,7 +233,11 @@ object BeginningOfTime : HttpEventStreamSubscriptionEdenPolicy() {
                     path = subscriberConfiguration.producerEndpointPath
                 )
 
-                return RequestBuilder().setUrl(url.toString()).setMethod("GET").build()
+                return { client: HttpClient ->
+                    client.get {
+                        url(url)
+                    }
+                }
             }
         }
     }
@@ -265,8 +252,8 @@ object FromNow : HttpEventStreamSubscriptionEdenPolicy() {
         val now = Instant.now() // cache now() once so doesn't refresh on every request
 
         return object : RequestFactory {
-            override fun createRequest(lastProcessedOffset: Long?): Request {
-                return if(lastProcessedOffset != null) {
+            override fun createRequest(lastProcessedOffset: Long?): suspend (HttpClient) -> JsonObject {
+                if(lastProcessedOffset != null) {
                     val query = HttpJsonEventQuery(
                             tags = tags,
                             afterOffset = lastProcessedOffset,
@@ -280,7 +267,11 @@ object FromNow : HttpEventStreamSubscriptionEdenPolicy() {
                         path = subscriberConfiguration.producerEndpointPath
                     )
 
-                    RequestBuilder().setUrl(url.toString()).setMethod("GET").build()
+                    return { client: HttpClient ->
+                        client.get {
+                            url(url)
+                        }
+                    }
                 } else {
                     val query = HttpJsonEventQuery(
                             tags = tags,
@@ -295,7 +286,11 @@ object FromNow : HttpEventStreamSubscriptionEdenPolicy() {
                         path = subscriberConfiguration.producerEndpointPath
                     )
 
-                    RequestBuilder().setUrl(url.toString()).setMethod("GET").build()
+                    return { client: HttpClient ->
+                        client.get {
+                            url(url)
+                        }
+                    }
                 }
             }
         }

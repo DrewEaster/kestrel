@@ -1,6 +1,12 @@
 package com.dreweaster.ddd.kestrel.domain.processmanagers
 
 import com.dreweaster.ddd.kestrel.application.*
+import com.dreweaster.ddd.kestrel.application.AggregateId
+import com.dreweaster.ddd.kestrel.application.ConcurrentModificationResult
+import com.dreweaster.ddd.kestrel.application.EventId
+import com.dreweaster.ddd.kestrel.application.RejectionResult
+import com.dreweaster.ddd.kestrel.application.SuccessResult
+import com.dreweaster.ddd.kestrel.application.UnexpectedExceptionResult
 import com.dreweaster.ddd.kestrel.domain.*
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.RegisterUser
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.User
@@ -46,7 +52,7 @@ import java.time.Instant
 //}
 // domainModel.processManagerOf(BatchSessions).storeEvent(event) // This will apply any mappers as necessary
 // domainModel.processManagerOf(BatchSessions).instancesAwaitingProcessing(pageable): Page<ProcessManagerId> // orders by event with oldest outstanding unprocessed event
-// domainModel.processManagerOf(BatchSessions).instanceOf(id).event() // Manually trigger event manager to execute - only useful if has events awaiting processing, does nowt otherwise
+// domainModel.processManagerOf(BatchSessions).instanceOf(id).event() // Manually trigger event manager to query - only useful if has events awaiting processing, does nowt otherwise
 // domainModel.processManagerOf(BatchSessions).instanceOf(id).suspend() // Manually force a event manager to suspend from the outside
 // domainModel.processManagerOf(BatchSessions).instanceOf(id).resume() // Forces a suspended event manager to resume processing from where it was suspended
 // domainModel.processManagerOf(BatchSessions).instanceOf(id).resumeFrom(sequenceNumber) // Forces a suspended event manager to resume processing from a given future sequence number
@@ -119,16 +125,16 @@ interface BatchSessionsContext : ProcessManagerContext {
 sealed class BatchSessionsEvent : DomainEvent { override val tag = DomainEventTag("batch-parking-sessions-event") }
 
 data class ParkingSessionQueued(
-    val carParkId: AggregateId,
-    val parkingAccountId: AggregateId,
-    val parkableVehicleId: AggregateId,
-    val startedAt: Instant,
-    val finishedAt: Instant): BatchSessionsEvent()
+        val carParkId: AggregateId,
+        val parkingAccountId: AggregateId,
+        val parkableVehicleId: AggregateId,
+        val startedAt: Instant,
+        val finishedAt: Instant): BatchSessionsEvent()
 
 data class ParkingSessionBatchCreated(
-    val carParkId: AggregateId,
-    val vehicle: Vehicle,
-    val sessions: List<QueuedParkingSession>): BatchSessionsEvent()
+        val carParkId: AggregateId,
+        val vehicle: Vehicle,
+        val sessions: List<QueuedParkingSession>): BatchSessionsEvent()
 
 object BufferingPeriodEnded: BatchSessionsEvent()
 data class TimedOutCreatingBatch(val completedBatchId: AggregateId): BatchSessionsEvent()

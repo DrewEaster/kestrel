@@ -15,11 +15,11 @@ class PostgresOffsetManager(private val database: Database) : OffsetManager {
         val primaryKeyConstraintConflictTarget = primaryKeyConstraintConflictTarget(name)
     }
 
-    override suspend fun getOffset(offsetKey: String) = database.transaction {
+    override fun getOffset(offsetKey: String) = database.transaction {
         Offsets.slice(Offsets.lastProcessedOffset).select { Offsets.name eq offsetKey }.map { row -> row[Offsets.lastProcessedOffset] }.firstOrNull()
     }
 
-    override suspend fun saveOffset(offsetKey: String, offset: Long) {
+    override fun saveOffset(offsetKey: String, offset: Long) {
         database.transaction { tx ->
             val rowsAffected = Offsets.upsert(primaryKeyConstraintConflictTarget, { Offsets.name eq offsetKey }) {
                 it[name] = offsetKey

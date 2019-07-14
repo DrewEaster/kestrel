@@ -4,6 +4,7 @@ import com.dreweaster.ddd.kestrel.domain.Aggregate
 import com.dreweaster.ddd.kestrel.domain.AggregateState
 import com.dreweaster.ddd.kestrel.domain.DomainCommand
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
+import io.reactivex.Single
 import java.util.*
 
 object IdGenerator {
@@ -17,11 +18,13 @@ data class CausationId(val value: String = IdGenerator.randomId())
 data class CorrelationId(val value: String = IdGenerator.randomId())
 data class EventId(val value: String = IdGenerator.randomId())
 
-sealed class CommandHandlingResult<E: DomainEvent>
-data class SuccessResult<E: DomainEvent>(val generatedEvents: List<E>, val deduplicated: Boolean = false) : CommandHandlingResult<E>()
-data class RejectionResult<E: DomainEvent>(val error: Throwable, val deduplicated: Boolean = false) : CommandHandlingResult<E>()
-class ConcurrentModificationResult<E: DomainEvent> : CommandHandlingResult<E>()
-class UnexpectedExceptionResult<E: DomainEvent>(val ex: Throwable): CommandHandlingResult<E>()
+sealed class CommandHandlingResult<C: DomainCommand, E: DomainEvent> {
+    abstract val command: CommandEnvelope<C>
+}
+data class SuccessResult<C: DomainCommand, E: DomainEvent>(override val command: CommandEnvelope<C>, val generatedEvents: List<E>, val deduplicated: Boolean = false) : CommandHandlingResult<C, E>()
+data class RejectionResult<C: DomainCommand, E: DomainEvent>(override val command: CommandEnvelope<C>, val error: Throwable, val deduplicated: Boolean = false) : CommandHandlingResult<C, E>()
+class ConcurrentModificationResult<C: DomainCommand, E: DomainEvent>(override val command: CommandEnvelope<C>) : CommandHandlingResult<C, E>()
+class UnexpectedExceptionResult<C: DomainCommand, E: DomainEvent>(override val command: CommandEnvelope<C>, val ex: Throwable): CommandHandlingResult<C, E>()
 
 // General errors
 object UnsupportedCommandInEdenBehaviour : RuntimeException()
@@ -32,16 +35,16 @@ object UnsupportedEventInCurrentBehaviour: RuntimeException()
 
 data class CommandEnvelope<C: DomainCommand>(
         val command: C,
-        val commandId: CommandId = CommandId(UUID.randomUUID().toString().replace("-","")),
+        val commandId: CommandId = CommandId(UUID.randomUUID().toString().replace("-", "")),
         val causationId: CausationId? = null,
         val correlationId: CorrelationId? = null
 )
 
 interface AggregateRoot<C: DomainCommand, E: DomainEvent> {
 
-    suspend infix fun handleCommandEnvelope(commandEnvelope: CommandEnvelope<C>): CommandHandlingResult<E>
+    infix fun handleCommandEnvelope(commandEnvelope: CommandEnvelope<C>): Single<CommandHandlingResult<C, E>>
 
-    suspend infix fun handleCommand(command: C): CommandHandlingResult<E> = handleCommandEnvelope(CommandEnvelope(command))
+    infix fun handleCommand(command: C): Single<CommandHandlingResult<C, E>> = handleCommandEnvelope(CommandEnvelope(command))
 }
 
 interface DomainModel {

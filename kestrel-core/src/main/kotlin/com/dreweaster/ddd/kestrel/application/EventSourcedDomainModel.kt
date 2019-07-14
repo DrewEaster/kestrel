@@ -4,10 +4,11 @@ import com.dreweaster.ddd.kestrel.domain.Aggregate
 import com.dreweaster.ddd.kestrel.domain.AggregateState
 import com.dreweaster.ddd.kestrel.domain.DomainCommand
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
+import io.reactivex.Single
 import io.vavr.control.Try
 
 class EventSourcedDomainModel(
-        private val backend: Backend,
+        private val backend: RxBackend,
         private val commandDeduplicationStrategyFactory: CommandDeduplicationStrategyFactory) : DomainModel {
 
     private var reporters: List<DomainModelReporter> = emptyList()
@@ -23,148 +24,116 @@ class EventSourcedDomainModel(
     override fun <C : DomainCommand, E : DomainEvent, S : AggregateState> aggregateRootOf(
             aggregateType: Aggregate<C, E, S>,
             aggregateId: AggregateId): AggregateRoot<C, E> {
-
-        val reportingContext = ReportingContext(aggregateType, aggregateId, reporters)
-        return DeduplicatingCommandHandler(aggregateType, aggregateId, reportingContext)
+        return DeduplicatingCommandHandler(aggregateType, aggregateId)
     }
 
     inner class DeduplicatingCommandHandler<C : DomainCommand, E : DomainEvent, S : AggregateState>(
             private val aggregateType: Aggregate<C, E, S>,
-            private val aggregateId: AggregateId,
-            private val reportingContext: ReportingContext<C,E,S>) : AggregateRoot<C,E> {
+            private val aggregateId: AggregateId) : AggregateRoot<C, E> {
 
-        suspend override fun handleCommandEnvelope(commandEnvelope: CommandEnvelope<C>): CommandHandlingResult<E> {
-            reportingContext.startedHandling(commandEnvelope)
-
-            val result = try {
-                val aggregate = recoverAggregate()
-
-                reportingContext.startedApplyingCommand()
-
-                when {
-                    aggregate.isNew -> handleEdenCommand(aggregate, commandEnvelope)
-                    else -> handleCommand(aggregate, commandEnvelope)
-                }
-            } catch(ocex: OptimisticConcurrencyException) {
-                ConcurrentModificationResult<E>()
-            } catch(ex: Throwable) {
-                UnexpectedExceptionResult<E>(ex)
-            }
-
-            reportingContext.finishedHandling(result)
-            return result
+        override fun handleCommandEnvelope(commandEnvelope: CommandEnvelope<C>): Single<CommandHandlingResult<C, E>> {
+            return backend.loadEvents(aggregateType, aggregateId)
+                .flatMap { recoverAggregate(it) }
+                .flatMap { applyCommand(commandEnvelope, it) }
+                .flatMap { persistEvents(it.first, it.second) }
+                .onErrorReturn(errorHandler(commandEnvelope))
         }
 
-        private suspend fun handleEdenCommand(aggregate: RecoveredAggregate<E,S>, commandEnvelope: CommandEnvelope<C>): CommandHandlingResult<E> {
+        private fun persistEvents(aggregate: RecoveredAggregate<E, S>, result: CommandHandlingResult<C, E>): Single<CommandHandlingResult<C, E>> {
+            return if(result is SuccessResult && result.generatedEvents.isNotEmpty()) {
+                backend.saveEvents(
+                    aggregateType,
+                    aggregateId,
+                    CausationId(result.command.commandId.value),
+                    result.generatedEvents,
+                    aggregate.version,
+                    result.command.correlationId
+                ).map { result }
+            } else Single.just(result)
+        }
+
+        private fun applyCommand(commandEnvelope: CommandEnvelope<C>, aggregate: RecoveredAggregate<E, S>): Single<Pair<RecoveredAggregate<E, S>, CommandHandlingResult<C, E>>> {
+            return when {
+                aggregate.isNew -> applyEdenCommand(aggregate, commandEnvelope)
+                else -> applyNonEdenCommand(aggregate, commandEnvelope)
+            }
+        }
+
+        private fun applyEdenCommand(aggregate: RecoveredAggregate<E, S>, commandEnvelope: CommandEnvelope<C>): Single<Pair<RecoveredAggregate<E, S>, CommandHandlingResult<C, E>>>{
             if(!aggregateType.blueprint.edenCommandHandler.canHandle(commandEnvelope.command)) {
-                val rejectionResult = RejectionResult<E>(UnsupportedCommandInEdenBehaviour)
-                reportingContext.commandApplicationRejected(rejectionResult.error, rejectionResult.deduplicated)
-                return rejectionResult
+                val rejectionResult = RejectionResult<C, E>(commandEnvelope, UnsupportedCommandInEdenBehaviour)
+                return Single.just(aggregate to (rejectionResult as CommandHandlingResult<C, E>))
             }
 
-            return try {
-                handleCommandApplicationResult(commandEnvelope, aggregate, aggregateType.blueprint.edenCommandHandler(commandEnvelope.command))
-            } catch(ex: Throwable) {
-                reportingContext.commandApplicationFailed(ex)
-                throw ex
-            }
+            return translateCommandApplicationResult(
+                aggregate,
+                commandEnvelope,
+                aggregateType.blueprint.edenCommandHandler(commandEnvelope.command)
+            )
         }
 
-        private suspend fun handleCommand(aggregate: RecoveredAggregate<E, S>, commandEnvelope: CommandEnvelope<C>): CommandHandlingResult<E> {
+        private fun applyNonEdenCommand(aggregate: RecoveredAggregate<E, S>, commandEnvelope: CommandEnvelope<C>): Single<Pair<RecoveredAggregate<E, S>, CommandHandlingResult<C, E>>>  {
             if(aggregate.hasHandledCommandBefore(commandEnvelope.commandId)) {
                 // TODO: If command was handled before but was rejected would be good to return the same rejection here
                 // TODO: Would require storing special RejectionEvents in the aggregate's event history
                 val generatedEvents = aggregate.previousEvents.filter { it.causationId.value == commandEnvelope.commandId.value }.map { it.rawEvent }
-                val result = SuccessResult(generatedEvents, deduplicated = true)
-                reportingContext.commandApplicationAccepted(generatedEvents, deduplicated = true)
-                return result
+                val result = SuccessResult(commandEnvelope, generatedEvents, deduplicated = true)
+                return Single.just(aggregate to (result as CommandHandlingResult<C, E>))
             } else {
                 if(aggregateType.blueprint.edenCommandHandler.canHandle(commandEnvelope.command)) {
                     if (!aggregateType.blueprint.edenCommandHandler.options(commandEnvelope.command).allowInAllBehaviours) {
                         // Can't issue an eden command once aggregate already exists
-                        val rejectionResult = RejectionResult<E>(AggregateInstanceAlreadyExists)
-                        reportingContext.commandApplicationRejected(rejectionResult.error, rejectionResult.deduplicated)
-                        return rejectionResult
+                        val rejectionResult = RejectionResult<C, E>(commandEnvelope, AggregateInstanceAlreadyExists)
+                        return Single.just(aggregate to rejectionResult)
                     }
                 }
 
                 if(!aggregateType.blueprint.commandHandler.canHandle(aggregate.state!!, commandEnvelope.command)) {
-                    val rejectionResult = RejectionResult<E>(UnsupportedCommandInCurrentBehaviour)
-                    reportingContext.commandApplicationRejected(rejectionResult.error, rejectionResult.deduplicated)
-                    return rejectionResult
+                    val rejectionResult = RejectionResult<C, E>(commandEnvelope, UnsupportedCommandInCurrentBehaviour)
+                    return Single.just(aggregate to rejectionResult)
                 }
 
-                return try {
-                    handleCommandApplicationResult(commandEnvelope, aggregate,  aggregateType.blueprint.commandHandler(aggregate.state, commandEnvelope.command))
-                } catch(ex: Throwable) {
-                    reportingContext.commandApplicationFailed(ex)
-                    throw ex
-                }
+                return translateCommandApplicationResult(
+                    aggregate,
+                    commandEnvelope,
+                    aggregateType.blueprint.commandHandler(aggregate.state, commandEnvelope.command)
+                )
             }
         }
 
-        private suspend fun handleCommandApplicationResult(
-                commandEnvelope: CommandEnvelope<C>,
-                aggregate: RecoveredAggregate<E, S>,
-                commandApplicationResult: Try<List<E>>): CommandHandlingResult<E> {
-
-            return when(commandApplicationResult) {
+        private fun translateCommandApplicationResult(aggregate: RecoveredAggregate<E, S>, commandEnvelope: CommandEnvelope<C>, result: Try<List<E>>): Single<Pair<RecoveredAggregate<E, S>, CommandHandlingResult<C, E>>> {
+            return when(result) {
                 is Try.Success -> {
-                    val generatedEvents = commandApplicationResult.get()
-
-                    reportingContext.commandApplicationAccepted(generatedEvents)
-
-                    if(generatedEvents.isNotEmpty()) {
-                        reportingContext.startedPersistingEvents(generatedEvents, aggregate.version)
-
-                        try {
-                            val persistedEvents = backend.saveEvents(
-                                    aggregateType,
-                                    aggregateId,
-                                    CausationId(commandEnvelope.commandId.value),
-                                    generatedEvents,
-                                    aggregate.version,
-                                    commandEnvelope.correlationId)
-                            reportingContext.finishedPersistingEvents(persistedEvents)
-                        } catch (ex: Throwable) {
-                            reportingContext.finishedPersistingEvents(ex)
-                            throw ex
-                        }
-                    }
-
-                    SuccessResult(generatedEvents)
+                    val generatedEvents = result.get()
+                    Single.just(aggregate to SuccessResult(commandEnvelope, generatedEvents)).doOnSuccess {
+                    } as  Single<Pair<RecoveredAggregate<E, S>, CommandHandlingResult<C, E>>>
                 }
                 else -> {
-                    reportingContext.commandApplicationRejected(commandApplicationResult.cause)
-                    RejectionResult(commandApplicationResult.cause)
+                    Single.just(aggregate to RejectionResult<C, E>(commandEnvelope, result.cause)).doOnSuccess {
+                    } as Single<Pair<RecoveredAggregate<E, S>, CommandHandlingResult<C, E>>>
                 }
             }
         }
 
-        // TODO: Check canHandle on event handlers
-        private suspend fun recoverAggregate(): RecoveredAggregate<E,S> {
-            return try {
-                reportingContext.startedRecoveringAggregate()
+        private fun recoverAggregate(previousEvents: List<PersistedEvent<E>>): Single<RecoveredAggregate<E, S>> {
+            return Single.just(previousEvents.fold(
+                    RecoveredAggregate<E, S>(
+                            version = -1,
+                            previousEvents = emptyList(),
+                            state = null,
+                            builder = commandDeduplicationStrategyFactory.newBuilder())
+            ) { acc, e -> acc.copy(
+                    version = e.sequenceNumber,
+                    previousEvents = acc.previousEvents + e,
+                    state = if(acc.state != null) aggregateType.blueprint.eventHandler(acc.state, e.rawEvent) else aggregateType.blueprint.edenEventHandler(e.rawEvent),
+                    builder = acc.builder.addEvent(e)
+            )})
+        }
 
-                val previousEvents = backend.loadEvents(aggregateType, aggregateId)
-
-                val aggregate = previousEvents.fold(
-                        RecoveredAggregate<E,S>(
-                                version = -1,
-                                previousEvents = emptyList(),
-                                state = null,
-                                builder = commandDeduplicationStrategyFactory.newBuilder())
-                ) { acc, e -> acc.copy(
-                        version = e.sequenceNumber,
-                        previousEvents = acc.previousEvents + e,
-                        state = if(acc.state != null) aggregateType.blueprint.eventHandler(acc.state, e.rawEvent) else aggregateType.blueprint.edenEventHandler(e.rawEvent),
-                        builder = acc.builder.addEvent(e)
-                )}
-                reportingContext.finishedRecoveringAggregate(aggregate.rawEvents, aggregate.version, aggregate.state)
-                aggregate
-            } catch(ex : Throwable) {
-                reportingContext.finishedRecoveringAggregate(ex)
-                throw ex
+        private fun errorHandler(commandEnvelope: CommandEnvelope<C>): (Throwable) -> CommandHandlingResult<C, E> = { ex ->
+            when(ex) {
+                is OptimisticConcurrencyException -> ConcurrentModificationResult(commandEnvelope)
+                else -> UnexpectedExceptionResult(commandEnvelope, ex)
             }
         }
     }

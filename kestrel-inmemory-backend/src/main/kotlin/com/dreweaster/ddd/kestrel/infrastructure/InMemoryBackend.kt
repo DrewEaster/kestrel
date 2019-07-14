@@ -3,6 +3,11 @@ package com.dreweaster.ddd.kestrel.infrastructure
 import com.dreweaster.ddd.kestrel.application.*
 import com.dreweaster.ddd.kestrel.application.pagination.Page
 import com.dreweaster.ddd.kestrel.application.pagination.Pageable
+import com.dreweaster.ddd.kestrel.application.AggregateId
+import com.dreweaster.ddd.kestrel.application.CausationId
+import com.dreweaster.ddd.kestrel.application.CorrelationId
+import com.dreweaster.ddd.kestrel.application.EventId
+import com.dreweaster.ddd.kestrel.application.ProcessManagerCorrelationId
 import com.dreweaster.ddd.kestrel.domain.Aggregate
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag

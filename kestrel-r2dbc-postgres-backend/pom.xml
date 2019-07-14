@@ -9,9 +9,14 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>kestrel-jdbc-backend</artifactId>
+    <artifactId>kestrel-r2dbc-postgres-backend</artifactId>
 
     <repositories>
+        <repository>
+            <id>squash</id>
+            <name>Squash</name>
+            <url>https://dl.bintray.com/kotlin/squash/</url>
+        </repository>
         <repository>
             <id>jcenter</id>
             <name>jcenter</name>
@@ -73,6 +78,36 @@
             <groupId>io.reactiverse</groupId>
             <artifactId>reactive-pg-client</artifactId>
             <version>0.11.3</version>
+        </dependency>
+        <dependency>
+            <groupId>io.r2dbc</groupId>
+            <artifactId>r2dbc-postgresql</artifactId>
+            <version>1.0.0.M6</version>
+        </dependency>
+        <dependency>
+            <groupId>io.r2dbc</groupId>
+            <artifactId>r2dbc-client</artifactId>
+            <version>1.0.0.M6</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jetbrains.squash</groupId>
+            <artifactId>squash-core</artifactId>
+            <version>0.2.4</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jetbrains.squash</groupId>
+            <artifactId>squash-postgres</artifactId>
+            <version>0.2.4</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jooq</groupId>
+            <artifactId>jooq</artifactId>
+            <version>3.11.11</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jooq</groupId>
+            <artifactId>jooq-meta</artifactId>
+            <version>3.11.11</version>
         </dependency>
     </dependencies>
 

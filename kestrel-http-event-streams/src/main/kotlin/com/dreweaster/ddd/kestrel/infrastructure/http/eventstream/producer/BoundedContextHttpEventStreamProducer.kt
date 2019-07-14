@@ -10,16 +10,17 @@ import com.github.salomonbrys.kotson.jsonArray
 import com.github.salomonbrys.kotson.jsonObject
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import io.reactivex.Single
 
 class BoundedContextHttpJsonEventStreamProducer(val backend: Backend) {
 
     private val jsonParser = JsonParser()
 
-    suspend fun produceFrom(urlQueryParameters: Map<String, List<String>>): JsonObject {
+    fun produceFrom(urlQueryParameters: Map<String, List<String>>): Single<JsonObject> {
         return convertStreamToJsonResponse(fetchEventStream(HttpJsonEventQuery.from(urlQueryParameters)))
     }
 
-    private suspend fun fetchEventStream(query: HttpJsonEventQuery): EventStream {
+    private fun fetchEventStream(query: HttpJsonEventQuery): Single<EventStream> {
         return if(query.afterTimestamp != null) {
             backend.loadEventStream<DomainEvent>(
                     query.tags,
@@ -33,15 +34,16 @@ class BoundedContextHttpJsonEventStreamProducer(val backend: Backend) {
         }
     }
 
-    private fun convertStreamToJsonResponse(stream: EventStream) =
-        jsonObject(
-            "tags" to jsonArray(stream.tags.map { it.value }),
-            "batch_size" to stream.batchSize,
-            "start_offset" to stream.startOffset,
-            "end_offset" to stream.endOffset,
-            "max_offset" to stream.maxOffset,
-            "events" to jsonArray(stream.events.map { streamEventToJsonEvent(it) })
-        )
+    private fun convertStreamToJsonResponse(singleStream: Single<EventStream>) =
+        singleStream.map { stream ->
+            jsonObject(
+                "tags" to jsonArray(stream.tags.map { it.value }),
+                "batch_size" to stream.batchSize,
+                "start_offset" to stream.startOffset,
+                "end_offset" to stream.endOffset,
+                "max_offset" to stream.maxOffset,
+                "events" to jsonArray(stream.events.map { streamEventToJsonEvent(it) })
+        )}
 
     private fun streamEventToJsonEvent(event: StreamEvent) =
         jsonObject(

@@ -33,21 +33,6 @@
             <version>2.5.0</version>
         </dependency>
         <dependency>
-            <groupId>org.asynchttpclient</groupId>
-            <artifactId>async-http-client</artifactId>
-            <version>2.4.7</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.reactivestreams</groupId>
-                    <artifactId>reactive-streams</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>com.typesafe.netty</groupId>
-                    <artifactId>netty-reactive-streams</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
             <groupId>org.reactivestreams</groupId>
             <artifactId>reactive-streams</artifactId>
             <version>1.0.2</version>
@@ -80,6 +65,18 @@
             <!--<groupId>org.jetbrains.exposed</groupId>-->
             <!--<artifactId>exposed</artifactId>-->
         <!--</dependency>-->
+        <dependency>
+            <groupId>io.ktor</groupId>
+            <artifactId>ktor-client-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.ktor</groupId>
+            <artifactId>ktor-client-cio</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.ktor</groupId>
+            <artifactId>ktor-client-gson</artifactId>
+        </dependency>
     </dependencies>
 
 </project>

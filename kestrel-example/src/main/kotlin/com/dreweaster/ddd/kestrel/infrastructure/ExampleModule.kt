@@ -6,6 +6,7 @@ import com.dreweaster.ddd.kestrel.application.eventstream.BoundedContextEventStr
 import com.dreweaster.ddd.kestrel.application.eventstream.BoundedContextName
 import com.dreweaster.ddd.kestrel.application.job.JobManager
 import com.dreweaster.ddd.kestrel.application.readmodel.user.UserReadModel
+import com.dreweaster.ddd.kestrel.application.rx.DomainModel
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc.Database
 import com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc.PostgresBackend
@@ -21,8 +22,7 @@ import com.dreweaster.ddd.kestrel.infrastructure.driving.http.routes.user.UserRo
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.BoundedContextHttpEventStreamSourceConfiguration
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.OffsetManager
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.PostgresOffsetManager
-import com.dreweaster.ddd.kestrel.infrastructure.job.ScheduledExecutorServiceJobManager
-import com.github.andrewoma.kwery.core.dialect.PostgresDialect
+import com.dreweaster.ddd.kestrel.infrastructure.job.RxJobManager
 import com.google.gson.Gson
 import com.google.inject.AbstractModule
 import com.google.inject.Binder
@@ -32,9 +32,12 @@ import com.google.inject.multibindings.Multibinder
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import io.ktor.application.Application
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.features.json.GsonSerializer
+import io.ktor.client.features.json.JsonFeature
 import io.ktor.config.ApplicationConfig
 import kotlinx.coroutines.Dispatchers
-import org.asynchttpclient.DefaultAsyncHttpClient
 import java.time.Duration
 import java.util.concurrent.Executors
 
@@ -73,7 +76,7 @@ class ExampleModule(val application: Application) : AbstractModule() {
     @Singleton
     @Provides
     fun jobManager(clusterManager: ClusterManager): JobManager {
-        return ScheduledExecutorServiceJobManager(
+        return RxJobManager(
             clusterManager = clusterManager,
             scheduler = Executors.newSingleThreadScheduledExecutor()
         )
@@ -96,7 +99,14 @@ class ExampleModule(val application: Application) : AbstractModule() {
     @Singleton
     @Provides
     fun boundedContextEventStreamSources(jobManager: JobManager, offsetManager: OffsetManager, config: ApplicationConfig): BoundedContextEventStreamSources {
-        val asyncHttpClient = DefaultAsyncHttpClient()
+        val asyncHttpClient = HttpClient(CIO) {
+            install(JsonFeature) {
+                serializer = GsonSerializer {
+                    serializeNulls()
+                    disableHtmlEscaping()
+                }
+            }
+        }
         val streamSourceFactories = listOf(UserContextHttpEventStreamSourceFactory)
         return BoundedContextEventStreamSources(streamSourceFactories.map {
             it.name to it.createHttpEventStreamSource(
