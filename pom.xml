@@ -12,7 +12,7 @@
         <module>kestrel-inmemory-backend</module>
         <module>kestrel-json</module>
         <module>kestrel-jdbc-backend</module>
-        <module>kestrel-r2dbc-postgres-backend</module>
+        <module>kestrel-rdbms-backend</module>
         <module>kestrel-http-event-streams</module>
         <module>kestrel-dropwizard-metrics</module>
         <module>kestrel-prometheus-metrics</module>

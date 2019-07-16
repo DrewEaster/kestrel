@@ -3,21 +3,22 @@ package com.dreweaster.ddd.kestrel.application
 import com.dreweaster.ddd.kestrel.domain.Aggregate
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
-import io.reactivex.Single
+import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import java.time.Instant
 import kotlin.reflect.KClass
 
+// TODO: Introduce different backend interfaces - AggregateRootBackend and ProcessManagerBackend
 interface Backend {
 
     fun <E : DomainEvent, A: Aggregate<*,E,*>> loadEvents(
             aggregateType: A,
-            aggregateId: AggregateId): Single<List<PersistedEvent<E>>>
+            aggregateId: AggregateId): Flux<PersistedEvent<E>>
 
     fun <E : DomainEvent, A: Aggregate<*,E,*>> loadEvents(
             aggregateType: A,
             aggregateId: AggregateId,
-            afterSequenceNumber: Long): Single<List<PersistedEvent<E>>>
+            afterSequenceNumber: Long): Flux<PersistedEvent<E>>
 
     fun <E : DomainEvent, A: Aggregate<*,E,*>> saveEvents(
             aggregateType: A,
@@ -25,17 +26,17 @@ interface Backend {
             causationId: CausationId,
             rawEvents: List<E>,
             expectedSequenceNumber: Long,
-            correlationId: CorrelationId? = null): Single<List<PersistedEvent<E>>>
+            correlationId: CorrelationId? = null): Flux<PersistedEvent<E>>
 
     fun <E : DomainEvent> loadEventStream(
             tags: Set<DomainEventTag>,
             afterOffset: Long,
-            batchSize: Int): Single<EventStream>
+            batchSize: Int): Mono<EventStream>
 
     fun <E : DomainEvent> loadEventStream(
             tags: Set<DomainEventTag>,
             afterInstant: Instant,
-            batchSize: Int): Single<EventStream>
+            batchSize: Int): Mono<EventStream>
 }
 
 object OptimisticConcurrencyException : RuntimeException()

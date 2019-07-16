@@ -223,8 +223,9 @@ object BatchSessions: ProcessManager<BatchSessionsContext, BatchSessionsEvent, B
                                     finishedAt = evt.finishedAt
                                 )
                             ))
-                    ){ "dreweaster" to "password" }.andSend { RegisterUser(it.first,it.second) toAggregate User identifiedBy AggregateId()
-                    }.andEmit { BufferingPeriodEnded at evt.startedAt + cxt.carPark.priceCappingPeriod }
+                    ){ "dreweaster" to "password" }
+                        .andSend { RegisterUser(it.first,it.second) toAggregate User identifiedBy AggregateId() }
+                        .andEmit { BufferingPeriodEnded at evt.startedAt + cxt.carPark.priceCappingPeriod }
                 }
             }
 

@@ -7,6 +7,8 @@ import com.dreweaster.ddd.kestrel.application.consumers.BoundedContexts.UserCont
 import com.dreweaster.ddd.kestrel.application.eventstream.StatelessEventConsumer
 import com.google.inject.Inject
 import com.google.inject.Singleton
+import io.reactivex.Completable
+import io.reactivex.Completable.*
 import org.slf4j.LoggerFactory
 
 @Singleton
@@ -20,7 +22,7 @@ class HelloNewUser @Inject constructor(boundedContexts: BoundedContextEventStrea
             subscribe(context = UserContext, subscriptionName = "hello-new-user", edenPolicy = FROM_NOW) {
 
                 event<UserRegistered> { event, _ ->
-                    LOG.info("Hello ${event.username}!")
+                    fromRunnable { LOG.info("Hello ${event.username}!") }
                 }
             }
         }.start()

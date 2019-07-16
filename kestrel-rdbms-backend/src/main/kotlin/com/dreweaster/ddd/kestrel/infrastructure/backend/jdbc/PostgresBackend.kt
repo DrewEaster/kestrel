@@ -47,7 +47,7 @@ class PostgresBackend(
     object ProcessManagerDomainEvents: Table("process_manager_domain_events") {
         val globalOffset  = long("global_offset").primaryKey().autoIncrement()
         val id = varchar("event_id", 144)
-        val processManagerCorrelationId = varchar("process_manager_correlation_id", 144)
+        val processManagerCorrelationId = varchar("process_manager_correlation_id", 144).uniqueIndex("event_id_unique_index")
         val processManagerType = varchar("process_manager_type", 144)
         val tag = varchar("tag", 100)
         val type = varchar("event_type", 255)
@@ -55,7 +55,24 @@ class PostgresBackend(
         val payload = text("event_payload")
         val timestamp = instant("event_timestamp")
         val sequenceNumber = long("sequence_number")
+        val d = index(true, id, processManagerCorrelationId)
         val uniqueEventForProcessManagerInstanceConflictTarget = uniqueIndexConflictTarget("event_id_unique_index", id, processManagerCorrelationId)
+
+        val primaryKey = primaryKey(globalOffset)
+        val uniqueEventIndex = uniqueIndex("event_id_unique_index", id, processManagerCorrelationId)
+    }
+
+    object ProcessManagerDomainEvent: Table("process_manager_domain_events") {
+        val globalOffset  = long("global_offset")
+        val id = string("event_id")
+        val processManagerCorrelationId = string("process_manager_correlation_id")
+        val processManagerType = string("process_manager_type", 144)
+        val tag = string("tag", 100)
+        val type = string("event_type", 255)
+        val version = int("event_version")
+        val payload = string("event_payload")
+        val timestamp = instant("event_timestamp")
+        val sequenceNumber = long("sequence_number")
     }
 
     object ProcessManagers: Table("process_manager") {

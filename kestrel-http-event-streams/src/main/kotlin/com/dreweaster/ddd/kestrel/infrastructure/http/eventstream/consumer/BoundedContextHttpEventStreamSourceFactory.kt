@@ -8,6 +8,13 @@ import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offse
 import com.google.gson.JsonObject
 import io.ktor.client.HttpClient
 
+/*
+    TODO: Introduce event versioning support that allows events of different versions to be targeted differently.
+    This would be based on premise that a bounded context no longer automatically migrates events that it returns
+    from its event log streams. It would move responsibility for even migration to event consumers. Thus, it would
+    be necessary for the stream source factories to allow registering different mappers for different versions of
+    the same canonical event types.
+ */
 abstract class BoundedContextHttpEventStreamSourceFactory(val name: BoundedContextName) {
 
     protected abstract val mappers: EventMappers
