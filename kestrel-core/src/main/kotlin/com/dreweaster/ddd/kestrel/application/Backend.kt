@@ -40,6 +40,7 @@ interface Backend {
 }
 
 object OptimisticConcurrencyException : RuntimeException()
+data class UnexpectedNumberOfRowsAffectedInUpdate(val expected: Int, val actual: Int) : RuntimeException()
 
 data class PersistedEvent<E : DomainEvent>(
         val id: EventId,

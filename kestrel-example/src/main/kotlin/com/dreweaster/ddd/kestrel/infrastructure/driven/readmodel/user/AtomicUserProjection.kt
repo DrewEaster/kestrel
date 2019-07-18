@@ -24,40 +24,40 @@ class AtomicUserProjection @Inject constructor(private val database: Database): 
     override val update = projection<User, UserEvent> {
 
         event<UserRegistered> { e ->
-
-            "INSERT into usr (id, username, password, locked) VALUES ($1, $2, $3, $4)".params(
-                "$1" to e.aggregateId.value,
-                "$2" to e.rawEvent.username,
-                "$3" to e.rawEvent.password,
-                "$4" to false).expect(1)
+            statement("INSERT into usr (id, username, password, locked) VALUES ($1, $2, $3, $4)") {
+                this["$1"] = e.aggregateId.value
+                this["$2"] = e.rawEvent.username
+                this["$3"] = e.rawEvent.password
+                this["$4"] = false
+            }
         }
 
         event<UsernameChanged> { e ->
-
-            "UPDATE usr SET username = $1 WHERE id = $2".params(
-                "$1" to e.aggregateId.value,
-                "$2" to e.rawEvent.username).expect(1)
+            statement("UPDATE usr SET username = $1 WHERE id = $2") {
+                this["$1"] = e.aggregateId.value
+                this["$2"] = e.rawEvent.username
+            }.expect(1)
         }
 
         event<PasswordChanged> { e ->
-
-            "UPDATE usr SET password = $1 WHERE id = $2".params(
-                "$1" to e.aggregateId.value,
-                "$2" to e.rawEvent.password).expect(1)
+            statement("UPDATE usr SET password = $1 WHERE id = $2") {
+                this["$1"] = e.aggregateId.value
+                this["$2"] = e.rawEvent.password
+            }.expect(1)
         }
 
         event<UserLocked> { e ->
-
-            "UPDATE usr SET locked = $1 WHERE id = $2".params(
-                "$1" to e.aggregateId.value,
-                "$2" to true).expect(1)
+            statement("UPDATE usr SET locked = $1 WHERE id = $2") {
+                this["$1"] = e.aggregateId.value
+                this["$2"] = true
+            }.expect(1)
         }
 
         event<UserUnlocked> { e ->
-
-            "UPDATE usr SET locked = $1 WHERE id = $2".params(
-                "$1" to e.aggregateId.value,
-                "$2" to false).expect(1)
+            statement("UPDATE usr SET locked = $1 WHERE id = $2") {
+                this["$1"] = e.aggregateId.value
+                this["$2"] = false
+            }.expect(1)
         }
     }
 

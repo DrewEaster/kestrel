@@ -5,12 +5,11 @@ import com.dreweaster.ddd.kestrel.domain.Aggregate
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import kotlin.reflect.KClass
 
-data class ProjectionStatement(val sql: String, val parameters: Map<String, Any>, val expectedRowsAffected: Int? = null): Iterable<ProjectionStatement> {
+data class ProjectionStatement(val sql: String, val parameters: Map<String, Any?>, val expectedRowsAffected: Int? = null): Iterable<ProjectionStatement> {
     override fun iterator(): Iterator<ProjectionStatement> = listOf(this).iterator()
 }
 
 abstract class AtomicDatabaseProjection {
-
 
     class EventHandlers {
 
@@ -40,11 +39,15 @@ class Projection<E: DomainEvent, A: Aggregate<*, E, *>>(val aggregateType: KClas
         eventHandlers.withHandler(Evt::class, handler as (PersistedEvent<DomainEvent>) -> Iterable<ProjectionStatement>)
     }
 
-    fun getProjectionStatements(e: PersistedEvent<DomainEvent>): Iterable<ProjectionStatement> {
-        return eventHandlers.handlers[e.rawEvent::class]?.invoke(e) ?: emptyList()
+    fun <Evt: DomainEvent> getProjectionStatements(e: PersistedEvent<Evt>): Iterable<ProjectionStatement> {
+        return eventHandlers.handlers[e.rawEvent::class]?.invoke(e as PersistedEvent<DomainEvent>) ?: emptyList()
     }
 
-    fun String.params(vararg params: Pair<String, Any>) = ProjectionStatement(sql = this, parameters = params.toMap())
+    fun statement(sql: String, body: ParameterBuilder.() -> Unit): ProjectionStatement {
+
+    }
+
+    fun String.params(vararg params: Pair<String, Any?>) = ProjectionStatement(sql = this, parameters = params.toMap())
 
     fun ProjectionStatement.expect(expectedRowsAffected: Int) = this.copy(expectedRowsAffected = expectedRowsAffected)
 }

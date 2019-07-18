@@ -1,6 +1,7 @@
 package com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms
 
 import reactor.core.publisher.Flux
+import reactor.core.publisher.Mono
 import java.math.BigDecimal
 import java.time.*
 import java.util.*
@@ -39,11 +40,23 @@ interface ResultRow {
     operator fun get(columnName: String): ResultColumn
 }
 
-interface DatabaseTransaction {
-    fun <T> select(sql: String, vararg params: Pair<String, Any>, mapper: (ResultRow) -> T): Flux<out T>
+data class ParameterBuilder(val values: MutableMap<String, Any?> = LinkedHashMap()) {
+    operator fun set(column: String, value: Any?) {
+        values[column] = value
+    }
+}
+
+interface DatabaseContext {
+    fun <T> select(sql: String, mapper: (ResultRow) -> T, body: ParameterBuilder.(T) -> Unit): Flux<out T>
+    fun <T> select(sql: String, vararg params: Pair<String, Any?>, mapper: (ResultRow) -> T): Flux<out T>
+    fun <T> select(sql: String, params: Map<String, Any?>, mapper: (ResultRow) -> T): Flux<out T>
     fun <T> select(sql: String, mapper: (ResultRow) -> T): Flux<out T>
+    fun <T> batchUpdate(sql: String, values: Iterable<T>, body: ParameterBuilder.(T) -> Unit): Mono<Unit>
+    fun update(sql: String, body: ParameterBuilder.() -> Unit): Mono<Int>
+    fun update(sql: String, vararg params: Pair<String, Any?>): Mono<Int>
+    fun update(sql: String, params: Map<String, Any?>): Mono<Int>
 }
 
 interface Database {
-    fun <T> inTransaction(f: (DatabaseTransaction) -> Flux<out T>): Flux<T>
+    fun <T> inTransaction(f: (DatabaseContext) -> Flux<out T>): Flux<T>
 }
