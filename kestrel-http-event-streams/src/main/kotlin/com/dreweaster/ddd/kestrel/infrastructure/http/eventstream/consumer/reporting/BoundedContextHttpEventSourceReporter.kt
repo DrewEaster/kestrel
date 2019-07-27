@@ -1,11 +1,11 @@
 package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.reporting
 
-interface BoundedContextHttpEventStreamSourceReporter {
+interface BoundedContextHttpEventSourceReporter {
 
-    fun createProbe(subscriberName: String): BoundedContextHttpEventStreamSourceProbe
+    fun createProbe(subscriberName: String): BoundedContextHttpEventSourceProbe
 }
 
-interface BoundedContextHttpEventStreamSourceProbe {
+interface BoundedContextHttpEventSourceProbe {
 
     fun startedConsuming()
 
@@ -38,9 +38,9 @@ interface BoundedContextHttpEventStreamSourceProbe {
     fun finishedHandlingEvent(ex: Throwable)
 }
 
-class ReportingContext(subscriptionName: String, reporters: List<BoundedContextHttpEventStreamSourceReporter>) : BoundedContextHttpEventStreamSourceProbe {
+class ReportingContext(subscriptionName: String, reporters: List<BoundedContextHttpEventSourceReporter>) : BoundedContextHttpEventSourceProbe {
 
-    private val probes: List<BoundedContextHttpEventStreamSourceProbe> = reporters.map { it.createProbe(subscriptionName) }
+    private val probes: List<BoundedContextHttpEventSourceProbe> = reporters.map { it.createProbe(subscriptionName) }
 
     override fun startedConsuming() {
         probes.forEach { it.startedConsuming() }
@@ -103,9 +103,9 @@ class ReportingContext(subscriptionName: String, reporters: List<BoundedContextH
     }
 }
 
-object ConsoleReporter : BoundedContextHttpEventStreamSourceReporter {
+object ConsoleReporter : BoundedContextHttpEventSourceReporter {
 
-    class ConsoleProbe(private val subscriberName: String) : BoundedContextHttpEventStreamSourceProbe {
+    class ConsoleProbe(private val subscriberName: String) : BoundedContextHttpEventSourceProbe {
 
         override fun startedConsuming() {
 
@@ -168,7 +168,7 @@ object ConsoleReporter : BoundedContextHttpEventStreamSourceReporter {
         }
     }
 
-    override fun createProbe(subscriberName: String): BoundedContextHttpEventStreamSourceProbe {
+    override fun createProbe(subscriberName: String): BoundedContextHttpEventSourceProbe {
         return ConsoleProbe(subscriberName)
     }
 }

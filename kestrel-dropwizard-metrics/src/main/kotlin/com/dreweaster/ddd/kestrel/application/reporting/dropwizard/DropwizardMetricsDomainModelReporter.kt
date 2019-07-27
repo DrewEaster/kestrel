@@ -93,11 +93,11 @@ class DropwizardMetricsDomainModelReporter(private val metricRegistry: MetricReg
             metricRegistry.counter(aggregateTypeSpecificMetricName("persist-events", "failure")).inc()
         }
 
-        override fun finishedHandling(result: CommandHandlingResult<E>) {
+        override fun finishedHandling(result: CommandHandlingResult<C, E, S>) {
             commandHandlingTimerContext?.stop()
             if(command != null) {
                 when(result) {
-                    is SuccessResult<E> -> {
+                    is SuccessResult<C, E, S> -> {
                         if(result.deduplicated) {
                             metricRegistry.counter(commandSpecificMetricName(command!!, "result", "success", "deduplicated")).inc()
                         } else {
@@ -107,17 +107,17 @@ class DropwizardMetricsDomainModelReporter(private val metricRegistry: MetricReg
                     }
 
                     // TODO: Should record specific rejection error types
-                    is RejectionResult<E> -> {
+                    is RejectionResult<C, E, S> -> {
                         if (result.deduplicated) {
                             metricRegistry.counter(commandSpecificMetricName(command!!, "result", "rejection", "deduplicated")).inc()
                         } else {
                             metricRegistry.counter(commandSpecificMetricName(command!!, "result", "rejection", "processed")).inc()
                         }
                     }
-                    is ConcurrentModificationResult<E> -> {
+                    is ConcurrentModificationResult<C, E, S> -> {
                         metricRegistry.counter(commandSpecificMetricName(command!!, "result", "concurrent-modification")).inc()
                     }
-                    is UnexpectedExceptionResult<E> -> {
+                    is UnexpectedExceptionResult<C, E, S> -> {
                         metricRegistry.counter(commandSpecificMetricName(command!!, "result", "unexpected-exception")).inc()
                     }
                 }

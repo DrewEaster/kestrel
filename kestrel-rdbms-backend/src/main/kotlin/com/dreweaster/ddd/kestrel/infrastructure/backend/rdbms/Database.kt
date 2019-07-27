@@ -1,10 +1,10 @@
 package com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms
 
 import reactor.core.publisher.Flux
-import reactor.core.publisher.Mono
 import java.math.BigDecimal
 import java.time.*
 import java.util.*
+import kotlin.reflect.KClass
 
 interface ResultColumn {
     val string: String
@@ -40,21 +40,38 @@ interface ResultRow {
     operator fun get(columnName: String): ResultColumn
 }
 
-data class ParameterBuilder(val values: MutableMap<String, Any?> = LinkedHashMap()) {
+data class SelectParameterBuilder(val values: MutableMap<String, Any?> = LinkedHashMap()) {
+
     operator fun set(column: String, value: Any?) {
         values[column] = value
     }
 }
 
+data class NullValue(val type: KClass<out Any>)
+
+data class UpdateParameterBuilder(val values: MutableMap<String, Any> = LinkedHashMap()) {
+
+    inline fun <reified T: Any> nullable(value: T?): Any = when(value) {
+        null -> NullValue(T::class)
+        else -> value
+    }
+
+    inline fun <reified T: Any> nullValue() = NullValue(T::class)
+
+    operator fun set(column: String, value: Any) {
+        values[column] = value
+    }
+}
+
 interface DatabaseContext {
-    fun <T> select(sql: String, mapper: (ResultRow) -> T, body: ParameterBuilder.(T) -> Unit): Flux<out T>
+    fun <T> select(sql: String, mapper: (ResultRow) -> T, body: SelectParameterBuilder.() -> Unit): Flux<out T>
     fun <T> select(sql: String, vararg params: Pair<String, Any?>, mapper: (ResultRow) -> T): Flux<out T>
     fun <T> select(sql: String, params: Map<String, Any?>, mapper: (ResultRow) -> T): Flux<out T>
     fun <T> select(sql: String, mapper: (ResultRow) -> T): Flux<out T>
-    fun <T> batchUpdate(sql: String, values: Iterable<T>, body: ParameterBuilder.(T) -> Unit): Mono<Unit>
-    fun update(sql: String, body: ParameterBuilder.() -> Unit): Mono<Int>
-    fun update(sql: String, vararg params: Pair<String, Any?>): Mono<Int>
-    fun update(sql: String, params: Map<String, Any?>): Mono<Int>
+    fun <T> batchUpdate(sql: String, values: Iterable<T>, body: UpdateParameterBuilder.(T) -> Unit): Flux<Int>
+    fun update(sql: String, body: UpdateParameterBuilder.() -> Unit): Flux<Int>
+    fun update(sql: String, vararg params: Pair<String, Any>): Flux<Int>
+    fun update(sql: String, params: Map<String, Any>): Flux<Int>
 }
 
 interface Database {

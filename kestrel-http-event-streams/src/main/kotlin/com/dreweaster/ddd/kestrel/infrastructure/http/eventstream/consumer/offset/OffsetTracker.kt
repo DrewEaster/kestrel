@@ -2,14 +2,14 @@ package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offs
 
 import reactor.core.publisher.Mono
 
-interface OffsetManager {
+interface OffsetTracker {
 
     fun getOffset(offsetKey: String): Mono<Long?>
 
     fun saveOffset(offsetKey: String, offset: Long): Mono<Unit>
 }
 
-object InMemoryOffsetManager : OffsetManager {
+object InMemoryOffsetTracker : OffsetTracker {
 
     private var offsetsMap: Map<String, Long> = emptyMap()
 

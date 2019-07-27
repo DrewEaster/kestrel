@@ -35,7 +35,7 @@ open class InMemoryBackend : Backend {
 
     override fun <E : DomainEvent, A : Aggregate<*, E, *>> saveEvents(aggregateType: A, aggregateId: AggregateId, causationId: CausationId, rawEvents: List<E>, expectedSequenceNumber: Long, correlationId: CorrelationId?): Flux<PersistedEvent<E>> {
         if (aggregateHasBeenModified(aggregateType, aggregateId, expectedSequenceNumber)) {
-            throw OptimisticConcurrencyException
+           return Flux.error(OptimisticConcurrencyException)
         }
 
         val persistedEvents = rawEvents.fold(Pair<Long, List<PersistedEvent<E>>>(expectedSequenceNumber + 1, emptyList())) { acc, e ->

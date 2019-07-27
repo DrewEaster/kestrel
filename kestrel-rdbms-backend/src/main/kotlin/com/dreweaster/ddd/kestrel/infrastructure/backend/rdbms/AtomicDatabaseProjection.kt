@@ -5,7 +5,7 @@ import com.dreweaster.ddd.kestrel.domain.Aggregate
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import kotlin.reflect.KClass
 
-data class ProjectionStatement(val sql: String, val parameters: Map<String, Any?>, val expectedRowsAffected: Int? = null): Iterable<ProjectionStatement> {
+data class ProjectionStatement(val sql: String, val parameters: Map<String, Any>, val expectedRowsAffected: Int? = null): Iterable<ProjectionStatement> {
     override fun iterator(): Iterator<ProjectionStatement> = listOf(this).iterator()
 }
 
@@ -43,13 +43,13 @@ class Projection<E: DomainEvent, A: Aggregate<*, E, *>>(val aggregateType: KClas
         return eventHandlers.handlers[e.rawEvent::class]?.invoke(e as PersistedEvent<DomainEvent>) ?: emptyList()
     }
 
-    fun statement(sql: String, body: ParameterBuilder.() -> Unit): ProjectionStatement {
-        val parameterBuilder = ParameterBuilder()
+    fun statement(sql: String, body: UpdateParameterBuilder.() -> Unit): ProjectionStatement {
+        val parameterBuilder = UpdateParameterBuilder()
         body(parameterBuilder)
         return ProjectionStatement(sql, parameterBuilder.values)
     }
 
-    fun String.params(vararg params: Pair<String, Any?>) = ProjectionStatement(sql = this, parameters = params.toMap())
+    fun String.params(vararg params: Pair<String, Any>) = ProjectionStatement(sql = this, parameters = params.toMap())
 
     fun ProjectionStatement.expect(expectedRowsAffected: Int) = this.copy(expectedRowsAffected = expectedRowsAffected)
 }

@@ -1,13 +1,13 @@
 package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer
 
 import com.dreweaster.ddd.kestrel.application.*
-import com.dreweaster.ddd.kestrel.application.job.Job
-import com.dreweaster.ddd.kestrel.application.job.JobManager
+import com.dreweaster.ddd.kestrel.application.scheduling.Job
+import com.dreweaster.ddd.kestrel.application.scheduling.Scheduler
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.HttpJsonEventQuery
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.OffsetManager
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.reporting.BoundedContextHttpEventStreamSourceReporter
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.OffsetTracker
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.reporting.BoundedContextHttpEventSourceReporter
 import com.github.salomonbrys.kotson.long
 import com.github.salomonbrys.kotson.nullString
 import com.github.salomonbrys.kotson.string
@@ -29,7 +29,7 @@ data class HttpJsonEventMapper<T: DomainEvent>(
     val sourceEventType: FullyQualifiedClassName,
     val map: (JsonObject) -> T)
 
-interface BoundedContextHttpEventStreamSourceConfiguration {
+interface BoundedContextHttpEventSourceConfiguration {
 
     val producerEndpointProtocol: String
 
@@ -48,27 +48,27 @@ interface BoundedContextHttpEventStreamSourceConfiguration {
 
 // TODO: Need to factor skipped events into batch size - i.e. always event minimum of batch size even if that means fetching multiple batches
 // TODO: Renable monitoring
-class BoundedContextHttpEventStreamSource(
+class BoundedContextHttpEventSource(
         val httpClient: HttpClient,
-        val configuration: BoundedContextHttpEventStreamSourceConfiguration,
+        val configuration: BoundedContextHttpEventSourceConfiguration,
         eventMappers: List<HttpJsonEventMapper<*>>,
-        val offsetManager: OffsetManager,
-        private val jobManager: JobManager): BoundedContextEventSource {
+        val offsetManager: OffsetTracker,
+        private val jobManager: Scheduler): BoundedContextEventSource {
 
-    private val LOG = LoggerFactory.getLogger(BoundedContextHttpEventStreamSource::class.java)
+    private val LOG = LoggerFactory.getLogger(BoundedContextHttpEventSource::class.java)
 
     private val targetClassToEventTag: Map<KClass<out DomainEvent>, DomainEventTag> = eventMappers.map { it.targetEventClass to it.sourceEventTag }.toMap()
 
     private val sourceEventTypeToMapper: Map<FullyQualifiedClassName, (JsonObject) -> DomainEvent> = eventMappers.map { it.sourceEventType to { jsonObject: JsonObject -> it.map(jsonObject)} }.toMap()
 
-    private var reporters: List<BoundedContextHttpEventStreamSourceReporter> = emptyList()
+    private var reporters: List<BoundedContextHttpEventSourceReporter> = emptyList()
 
-    fun addReporter(reporter: BoundedContextHttpEventStreamSourceReporter): BoundedContextHttpEventStreamSource {
+    fun addReporter(reporter: BoundedContextHttpEventSourceReporter): BoundedContextHttpEventSource {
         reporters += reporter
         return this
     }
 
-    fun removeReporter(reporter: BoundedContextHttpEventStreamSourceReporter): BoundedContextHttpEventStreamSource {
+    fun removeReporter(reporter: BoundedContextHttpEventSourceReporter): BoundedContextHttpEventSource {
         reporters -= reporter
         return this
     }
@@ -103,7 +103,7 @@ class BoundedContextHttpEventStreamSource(
 
         override fun execute(): Mono<Unit> {
             return fetchOffset()
-                .flatMap(fetchEvents)
+                .flatMapMany(fetchEvents)
                 .flatMap(handleEvent)
                 .flatMap(saveOffset)
                 .single()
@@ -126,17 +126,17 @@ class BoundedContextHttpEventStreamSource(
 
         private val fetchEvents: (Long?) -> Flux<JsonObject> = { lastProcessedOffset ->
             requestFactory.createRequest(lastProcessedOffset)(httpClient)
-                .flatMap { jsonBody -> Flux.fromIterable(jsonBody["events"].asJsonArray.toList().map { it.asJsonObject }) }
+                .flatMapMany { jsonBody -> Flux.fromIterable(jsonBody["events"].asJsonArray.toList().map { it.asJsonObject }) }
         }
 
         private fun extractEventMetadata(eventJson: JsonObject) =
-                EventMetadata(
-                        EventId(eventJson["id"].string),
-                        AggregateId(eventJson["aggregate_id"].string),
-                        CausationId(eventJson["causation_id"].string),
-                        eventJson["correlation_id"].nullString?.let { CorrelationId(it) },
-                        eventJson["sequence_number"].long
-                )
+            EventMetadata(
+                EventId(eventJson["id"].string),
+                AggregateId(eventJson["aggregate_id"].string),
+                CausationId(eventJson["causation_id"].string),
+                eventJson["correlation_id"].nullString?.let { CorrelationId(it) },
+                eventJson["sequence_number"].long
+            )
     }
 }
 
@@ -152,7 +152,7 @@ sealed class HttpEventStreamSubscriptionEdenPolicy {
     }
 
     abstract fun newRequestFactory(
-            subscriberConfiguration: BoundedContextHttpEventStreamSourceConfiguration,
+            subscriberConfiguration: BoundedContextHttpEventSourceConfiguration,
             tags: Set<DomainEventTag>,
             batchSize: Int): RequestFactory
 
@@ -163,7 +163,7 @@ sealed class HttpEventStreamSubscriptionEdenPolicy {
 
 object BeginningOfTime : HttpEventStreamSubscriptionEdenPolicy() {
     override fun newRequestFactory(
-            subscriberConfiguration: BoundedContextHttpEventStreamSourceConfiguration,
+            subscriberConfiguration: BoundedContextHttpEventSourceConfiguration,
             tags: Set<DomainEventTag>,
             batchSize: Int): RequestFactory {
 
@@ -196,7 +196,7 @@ object BeginningOfTime : HttpEventStreamSubscriptionEdenPolicy() {
 
 object FromNow : HttpEventStreamSubscriptionEdenPolicy() {
     override fun newRequestFactory(
-            subscriberConfiguration: BoundedContextHttpEventStreamSourceConfiguration,
+            subscriberConfiguration: BoundedContextHttpEventSourceConfiguration,
             tags: Set<DomainEventTag>,
             batchSize: Int): RequestFactory {
 

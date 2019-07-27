@@ -17,7 +17,7 @@ class BoundedContextHttpJsonEventStreamProducer(val backend: Backend) {
     private val jsonParser = JsonParser()
 
     fun produceFrom(urlQueryParameters: Map<String, List<String>>): Mono<JsonObject> {
-        return convertStreamToJsonResponse(fetchEventStream(HttpJsonEventQuery.from(urlQueryParameters ?: emptyMap())))
+        return convertStreamToJsonResponse(fetchEventStream(HttpJsonEventQuery.from(urlQueryParameters)))
     }
 
     private fun fetchEventStream(query: HttpJsonEventQuery): Mono<EventStream> {

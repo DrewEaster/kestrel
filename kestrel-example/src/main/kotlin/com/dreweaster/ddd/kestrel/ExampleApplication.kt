@@ -13,16 +13,16 @@ import com.dreweaster.ddd.kestrel.domain.aggregates.user.RegisterUser
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.User
 import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.postgres.PostgresBackend
 import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.r2dbc.R2dbcDatabase
-import com.dreweaster.ddd.kestrel.infrastructure.cluster.LocalClusterManager
+import com.dreweaster.ddd.kestrel.infrastructure.cluster.LocalCluster
 import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonEventMappingConfigurer
 import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonEventPayloadMapper
 import com.dreweaster.ddd.kestrel.infrastructure.driven.readmodel.user.AtomicUserProjection
 import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.*
 import com.dreweaster.ddd.kestrel.infrastructure.driving.eventstream.UserContextHttpEventStreamSourceFactory
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.BoundedContextHttpEventStreamSourceConfiguration
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.PostgresOffsetManager
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.BoundedContextHttpEventSourceConfiguration
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.PostgresOffsetTracker
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.producer.BoundedContextHttpJsonEventStreamProducer
-import com.dreweaster.ddd.kestrel.infrastructure.job.RxJobManager
+import com.dreweaster.ddd.kestrel.infrastructure.scheduling.ClusterAwareReactiveScheduler
 import com.github.salomonbrys.kotson.jsonArray
 import com.github.salomonbrys.kotson.jsonObject
 import com.github.salomonbrys.kotson.string
@@ -48,7 +48,7 @@ import java.time.Duration
 
 object Application {
 
-    val jsonParser = JsonParser()
+    private val jsonParser = JsonParser()
 
     fun main(args: Array<String>) {
 
@@ -78,14 +78,14 @@ object Application {
         val userReadModel = AtomicUserProjection(database)
         val backend = PostgresBackend(database, payloadMapper, listOf(userReadModel))
         val domainModel = EventSourcedDomainModel(backend, TwentyFourHourWindowCommandDeduplication)
-        val jobManager = RxJobManager(LocalClusterManager)
-        val offsetManager = PostgresOffsetManager(database)
+        val jobManager = ClusterAwareReactiveScheduler(LocalCluster)
+        val offsetManager = PostgresOffsetTracker(database)
 
         val streamSourceFactories = listOf(UserContextHttpEventStreamSourceFactory)
         val streamSources = BoundedContextEventSources(streamSourceFactories.map {
-            it.name to it.createHttpEventStreamSource(
+            it.name to it.createHttpEventSource(
                 httpClient = HttpClient.create(),
-                configuration = createHttpEventStreamSourceConfiguration(it.name, config),
+                configuration = createHttpEventSourceConfiguration(it.name, config),
                 jobManager = jobManager,
                 offsetManager = offsetManager
             )
@@ -129,9 +129,9 @@ object Application {
         )
     }
 
-    private fun createHttpEventStreamSourceConfiguration(context: BoundedContextName, config: Config): BoundedContextHttpEventStreamSourceConfiguration {
+    private fun createHttpEventSourceConfiguration(context: BoundedContextName, config: Config): BoundedContextHttpEventSourceConfiguration {
 
-        return object : BoundedContextHttpEventStreamSourceConfiguration {
+        return object : BoundedContextHttpEventSourceConfiguration {
 
             override val producerEndpointProtocol = config.getString("contexts.${context.name}.protocol")
 

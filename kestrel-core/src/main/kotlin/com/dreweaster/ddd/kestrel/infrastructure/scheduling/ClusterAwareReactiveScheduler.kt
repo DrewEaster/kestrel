@@ -1,8 +1,8 @@
-package com.dreweaster.ddd.kestrel.infrastructure.job
+package com.dreweaster.ddd.kestrel.infrastructure.scheduling
 
-import com.dreweaster.ddd.kestrel.application.job.Job
-import com.dreweaster.ddd.kestrel.application.job.JobManager
-import com.dreweaster.ddd.kestrel.infrastructure.cluster.ClusterManager
+import com.dreweaster.ddd.kestrel.application.scheduling.Job
+import com.dreweaster.ddd.kestrel.application.scheduling.Scheduler
+import com.dreweaster.ddd.kestrel.infrastructure.cluster.Cluster
 import org.slf4j.LoggerFactory
 import reactor.core.Disposable
 import java.time.Duration
@@ -14,20 +14,20 @@ import java.util.concurrent.Executors
 /**
  * TODO: Need to implement shutdown of jobs
  */
-class RxJobManager(private val clusterManager: ClusterManager): JobManager {
+class ClusterAwareReactiveScheduler(private val clusterManager: Cluster): Scheduler {
 
-    private val LOG = LoggerFactory.getLogger(RxJobManager::class.java)
+    private val LOG = LoggerFactory.getLogger(ClusterAwareReactiveScheduler::class.java)
 
     private val jobs = mutableListOf<Disposable>()
 
     override fun scheduleManyTimes(repeatSchedule: Duration, job: Job) {
         val jobScheduler = Schedulers.fromExecutor(Executors.newSingleThreadExecutor()) // TODO: must dispose of this
 
-        jobs.add(delay(Duration.ofMillis(1000))
+        jobs.add(delay(repeatSchedule)
             .publishOn(jobScheduler)
             .subscribeOn(jobScheduler)
             .flatMap { ClusterSingletonJobWrapper(job).execute() }
-            .timeout(Duration.ofMillis(10000))
+            .timeout(repeatSchedule.multipliedBy(10)) // TODO: needs to be configurable
             .onErrorResume { fromCallable { LOG.error("Job execution failed: '${job.name}'", it) } }
             .repeat()
             .subscribe(

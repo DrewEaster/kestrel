@@ -65,36 +65,54 @@ class R2dbcDatabaseHandle(private val handle: Handle): DatabaseContext {
         else -> it
     }}
 
-    override fun <T> select(sql: String, mapper: (ResultRow) -> T, body: ParameterBuilder.(T) -> Unit): Flux<out T> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    override fun <T> select(sql: String, mapper: (ResultRow) -> T, body: SelectParameterBuilder.() -> Unit): Flux<out T> {
+        val parameterBuilder = SelectParameterBuilder()
+        body(parameterBuilder)
+        return select(sql, parameterBuilder.values, mapper)
     }
 
     override fun <T> select(sql: String, vararg params: Pair<String, Any?>, mapper: (ResultRow) -> T): Flux<out T> {
-        return handle.select(sql, params.map(paramValueMapper)).mapRow { row -> mapper(R2dbcResultRow(row)) }
-    }
-
-    override fun <T> select(sql: String, params: Map<String, Any?>, mapper: (ResultRow) -> T): Flux<out T> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
-    }
-
-    override fun <T> batchUpdate(sql: String, values: Iterable<T>, body: ParameterBuilder.(T) -> Unit): Mono<Unit> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
-    }
-
-    override fun update(sql: String, body: ParameterBuilder.() -> Unit): Mono<Int> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
-    }
-
-    override fun update(sql: String, vararg params: Pair<String, Any?>): Mono<Int> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
-    }
-
-    override fun update(sql: String, params: Map<String, Any?>): Mono<Int> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+        return select(sql, params.toMap(), mapper)
     }
 
     override fun <T> select(sql: String, mapper: (ResultRow) -> T): Flux<out T> {
         return handle.select(sql).mapRow { row -> mapper(R2dbcResultRow(row)) }
     }
-}
 
+    override fun <T> select(sql: String, params: Map<String, Any?>, mapper: (ResultRow) -> T): Flux<out T> {
+        return handle.select(sql, params.map(paramValueMapper)).mapRow { row -> mapper(R2dbcResultRow(row)) }
+    }
+
+    override fun <T> batchUpdate(sql: String, values: Iterable<T>, body: UpdateParameterBuilder.(T) -> Unit): Flux<Int> {
+        val update = handle.createUpdate(sql)
+        values.forEach { value ->
+            val parameterBuilder = UpdateParameterBuilder()
+            body(parameterBuilder, value)
+            parameterBuilder.values.forEach { (column, value) -> when(value) {
+                is NullValue -> update.bindNull(column, value.type.java)
+                else -> update.bind(column, value)
+            }}
+            update.add()
+        }
+        return update.execute()
+    }
+
+    override fun update(sql: String, body: UpdateParameterBuilder.() -> Unit): Flux<Int> {
+        val parameterBuilder = UpdateParameterBuilder()
+        body(parameterBuilder)
+        return update(sql, parameterBuilder.values)
+    }
+
+    override fun update(sql: String, vararg params: Pair<String, Any>): Flux<Int> {
+        return update(sql, params.toMap())
+    }
+
+    override fun update(sql: String, params: Map<String, Any>): Flux<Int> {
+        val update = handle.createUpdate(sql)
+        params.forEach { (column, value) -> when(value) {
+            is NullValue -> update.bindNull(column, value.type.java)
+            else -> update.bind(column, value)
+        }}
+        return update.execute()
+    }
+}

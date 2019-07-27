@@ -11,7 +11,6 @@ object IdGenerator {
     fun randomId(): String = UUID.randomUUID().toString().replace("-","")
 }
 
-data class ProcessManagerCorrelationId(val value: String = IdGenerator.randomId())
 data class AggregateId(val value: String = IdGenerator.randomId())
 data class CommandId(val value: String = IdGenerator.randomId())
 data class CausationId(val value: String = IdGenerator.randomId())

@@ -112,7 +112,7 @@ class PostgresBackend(
                 this["aggregate_type"] = aggregateType.blueprint.name
                 this["tag"] = event.rawEvent.tag.value
                 this["causation_id"] = event.causationId.value
-                this["correlation_id"] = event.correlationId?.value
+                this["correlation_id"] = nullable(event.correlationId?.value)
                 this["event_type"] = event.eventType.qualifiedName!!
                 this["event_version"] = event.serialisationResult.version
                 this["event_payload"] = event.serialisationResult.payload
@@ -129,7 +129,7 @@ class PostgresBackend(
             val persistedEvents = Flux.fromIterable(saveableEvents.second.map { it.toPersistedEvent() })
 
             saveEvents
-                .then(saveAggregate)
+                .thenMany(saveAggregate)
                 .flatMap(checkForConcurrentModification)
                 .thenMany(persistedEvents)
                 .flatMap(updateProjections(ctx))

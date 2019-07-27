@@ -1,4 +1,4 @@
-package com.dreweaster.ddd.kestrel.application.job
+package com.dreweaster.ddd.kestrel.application.scheduling
 
 import reactor.core.publisher.Mono
 import java.time.Duration
@@ -10,7 +10,7 @@ interface Job {
     fun execute(): Mono<Unit>
 }
 
-interface JobManager {
+interface Scheduler {
 
     fun scheduleManyTimes(repeatSchedule: Duration, job: Job)
 

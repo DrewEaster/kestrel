@@ -1,10 +1,10 @@
 package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer
 
 import com.dreweaster.ddd.kestrel.application.BoundedContextName
-import com.dreweaster.ddd.kestrel.application.job.JobManager
+import com.dreweaster.ddd.kestrel.application.scheduling.Scheduler
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.OffsetManager
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.OffsetTracker
 import com.google.gson.JsonObject
 import reactor.netty.http.client.HttpClient
 
@@ -15,17 +15,17 @@ import reactor.netty.http.client.HttpClient
     be necessary for the stream source factories to allow registering different mappers for different versions of
     the same canonical event types.
  */
-abstract class BoundedContextHttpEventStreamSourceFactory(val name: BoundedContextName) {
+abstract class BoundedContextHttpEventSourceFactory(val name: BoundedContextName) {
 
     protected abstract val mappers: EventMappers
 
-    fun createHttpEventStreamSource(
+    fun createHttpEventSource(
             httpClient: HttpClient,
-            configuration: BoundedContextHttpEventStreamSourceConfiguration,
-            offsetManager: OffsetManager,
-            jobManager: JobManager): BoundedContextHttpEventStreamSource {
+            configuration: BoundedContextHttpEventSourceConfiguration,
+            offsetManager: OffsetTracker,
+            jobManager: Scheduler): BoundedContextHttpEventSource {
 
-        return BoundedContextHttpEventStreamSource(
+        return BoundedContextHttpEventSource(
                 httpClient = httpClient,
                 configuration = configuration,
                 jobManager = jobManager,
