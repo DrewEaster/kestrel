@@ -41,10 +41,9 @@ class EventSourcedDomainModel(
                 .flatMap { applyCommand(commandEnvelope, it) }
                 .flatMap { if(commandEnvelope.dryRun) Mono.just(it.second) else persistEvents(it.first, it.second) }
                 .onErrorResume(errorHandler(commandEnvelope))
-                .single()
         }
 
-        private fun persistEvents(aggregate: RecoverableAggregate<C, E, S>, result: CommandHandlingResult<C, E, S>): Mono<CommandHandlingResult<C, E, S>> {
+        private fun persistEvents(aggregate: RecoverableAggregate<C, E, S>, result: CommandHandlingResult<C, E, S>): Mono<out CommandHandlingResult<C, E, S>> {
             return if(result is SuccessResult && result.generatedEvents.isNotEmpty()) {
                 backend.saveEvents(
                     aggregateType,
@@ -53,7 +52,7 @@ class EventSourcedDomainModel(
                     result.generatedEvents,
                     aggregate.version,
                     result.command.correlationId
-                ).map { result }.single()
+                ).then(Mono.just(result))
             } else Mono.just(result)
         }
 
@@ -88,14 +87,12 @@ class EventSourcedDomainModel(
                 if(aggregateType.blueprint.edenCommandHandler.canHandle(commandEnvelope.command)) {
                     if (!aggregateType.blueprint.edenCommandHandler.options(commandEnvelope.command).allowInAllBehaviours) {
                         // Can't issue an eden command once aggregate already exists
-                        val rejectionResult = RejectionResult(aggregateId, aggregateType, commandEnvelope, AggregateInstanceAlreadyExists)
-                        return Mono.just(aggregate to rejectionResult)
+                        return Mono.error(AggregateInstanceAlreadyExists)
                     }
                 }
 
                 if(!aggregateType.blueprint.commandHandler.canHandle(aggregate.state!!, commandEnvelope.command)) {
-                    val rejectionResult = RejectionResult(aggregateId, aggregateType, commandEnvelope, UnsupportedCommandInCurrentBehaviour)
-                    return Mono.just(aggregate to rejectionResult)
+                    return Mono.error(UnsupportedCommandInCurrentBehaviour)
                 }
 
                 return translateCommandApplicationResult(

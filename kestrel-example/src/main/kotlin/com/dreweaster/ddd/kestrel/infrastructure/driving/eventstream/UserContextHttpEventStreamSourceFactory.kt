@@ -1,11 +1,11 @@
 package com.dreweaster.ddd.kestrel.infrastructure.driving.eventstream
 
-import com.dreweaster.ddd.kestrel.application.consumers.BoundedContexts.UserContext
+import com.dreweaster.ddd.kestrel.application.BoundedContexts.UserContext
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.*
 import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.PasswordChangedMapper
 import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.UserRegisteredMapper
 import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.UsernameChangedMapper
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.BoundedContextHttpEventSourceFactory
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.BoundedContextHttpEventSourceFactory
 
 object UserContextHttpEventStreamSourceFactory: BoundedContextHttpEventSourceFactory(UserContext) {
 

@@ -17,3 +17,7 @@ TODO
 * Kestrel application bootstrap module (e.g. KestrelRdbmsApplication)
 * Debezium + Kafka/Kinesis stream support
 * Consider dropping implicit migration of event payloads in http event sources - introduce versioning into consumers
+* Switch stateless process manager to be similar to stateful one
+* Register process managers with application rather than start themselves
+* Default JSON mapper functionality for v1 of events
+* Create CLI toolbelt for auto generation of skeleton code

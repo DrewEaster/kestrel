@@ -1,4 +1,4 @@
-package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream
+package com.dreweaster.ddd.kestrel.infrastructure.http.eventsource
 
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
 import com.dreweaster.ddd.kestrel.infrastructure.http.util.TimeUtils.instantFromUTCString

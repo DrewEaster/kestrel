@@ -1,4 +1,4 @@
-package com.dreweaster.ddd.kestrel.application.consumers
+package com.dreweaster.ddd.kestrel.application
 
 import com.dreweaster.ddd.kestrel.application.BoundedContextName
 

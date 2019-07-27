@@ -54,9 +54,9 @@ object User : Aggregate<UserCommand, UserEvent, UserState> {
                     //any { _, _ -> reject(UserIsLocked)}
                 }
 
-                apply {
-                    event<UserUnlocked> { currentState, _ -> ActiveUser(currentState.username, currentState.password)}
-                }
+//                apply {
+//                    event<UserUnlocked> { currentState, _ -> ActiveUser(currentState.username, currentState.password)}
+//                }
             }
         }
 }

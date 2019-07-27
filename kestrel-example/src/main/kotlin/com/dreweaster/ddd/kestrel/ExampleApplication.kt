@@ -4,7 +4,7 @@ import com.dreweaster.ddd.kestrel.application.AggregateId
 import com.dreweaster.ddd.kestrel.application.EventSourcedDomainModel
 import com.dreweaster.ddd.kestrel.application.IdGenerator
 import com.dreweaster.ddd.kestrel.application.TwentyFourHourWindowCommandDeduplication
-import com.dreweaster.ddd.kestrel.application.consumers.HelloNewUser
+import com.dreweaster.ddd.kestrel.application.consumer.HelloNewUser
 import com.dreweaster.ddd.kestrel.application.BoundedContextEventSources
 import com.dreweaster.ddd.kestrel.application.BoundedContextName
 import com.dreweaster.ddd.kestrel.application.readmodel.user.UserDTO
@@ -19,9 +19,9 @@ import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.Json
 import com.dreweaster.ddd.kestrel.infrastructure.driven.readmodel.user.AtomicUserProjection
 import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.*
 import com.dreweaster.ddd.kestrel.infrastructure.driving.eventstream.UserContextHttpEventStreamSourceFactory
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.BoundedContextHttpEventSourceConfiguration
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.PostgresOffsetTracker
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.producer.BoundedContextHttpJsonEventStreamProducer
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.BoundedContextHttpEventSourceConfiguration
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.PostgresOffsetTracker
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.producer.BoundedContextHttpJsonEventStreamProducer
 import com.dreweaster.ddd.kestrel.infrastructure.scheduling.ClusterAwareReactiveScheduler
 import com.github.salomonbrys.kotson.jsonArray
 import com.github.salomonbrys.kotson.jsonObject

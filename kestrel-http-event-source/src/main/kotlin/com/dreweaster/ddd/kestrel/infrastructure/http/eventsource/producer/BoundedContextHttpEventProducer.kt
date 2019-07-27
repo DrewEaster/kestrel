@@ -1,10 +1,10 @@
-package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.producer
+package com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.producer
 
 import com.dreweaster.ddd.kestrel.application.Backend
 import com.dreweaster.ddd.kestrel.application.EventStream
 import com.dreweaster.ddd.kestrel.application.StreamEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.HttpJsonEventQuery
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.HttpJsonEventQuery
 import com.dreweaster.ddd.kestrel.infrastructure.http.util.TimeUtils
 import com.github.salomonbrys.kotson.jsonArray
 import com.github.salomonbrys.kotson.jsonObject
@@ -17,10 +17,10 @@ class BoundedContextHttpJsonEventStreamProducer(val backend: Backend) {
     private val jsonParser = JsonParser()
 
     fun produceFrom(urlQueryParameters: Map<String, List<String>>): Mono<JsonObject> {
-        return convertStreamToJsonResponse(fetchEventStream(HttpJsonEventQuery.from(urlQueryParameters)))
+        return convertStreamToJsonResponse(fetchEvents(HttpJsonEventQuery.from(urlQueryParameters)))
     }
 
-    private fun fetchEventStream(query: HttpJsonEventQuery): Mono<EventStream> {
+    private fun fetchEvents(query: HttpJsonEventQuery): Mono<EventStream> {
         return if(query.afterTimestamp != null) {
             backend.loadEventStream<DomainEvent>(
                 query.tags,

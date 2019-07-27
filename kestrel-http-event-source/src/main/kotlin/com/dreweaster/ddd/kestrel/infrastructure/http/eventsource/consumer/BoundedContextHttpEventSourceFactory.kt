@@ -1,10 +1,10 @@
-package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer
+package com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer
 
 import com.dreweaster.ddd.kestrel.application.BoundedContextName
 import com.dreweaster.ddd.kestrel.application.scheduling.Scheduler
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.OffsetTracker
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.OffsetTracker
 import com.google.gson.JsonObject
 import reactor.netty.http.client.HttpClient
 

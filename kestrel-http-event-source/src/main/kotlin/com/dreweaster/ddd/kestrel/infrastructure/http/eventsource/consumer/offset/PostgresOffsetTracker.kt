@@ -1,4 +1,4 @@
-package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset
+package com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset
 
 import com.dreweaster.ddd.kestrel.application.UnexpectedNumberOfRowsAffectedInUpdate
 import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.Database

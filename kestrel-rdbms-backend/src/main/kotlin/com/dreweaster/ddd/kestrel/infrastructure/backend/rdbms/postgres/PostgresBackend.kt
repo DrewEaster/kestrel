@@ -105,7 +105,8 @@ class PostgresBackend(
             ))
         }
 
-        return db.inTransaction { ctx ->
+        val doSaveEvents: (DatabaseContext) -> Flux<PersistedEvent<E>> = { ctx ->
+
             val saveEvents = ctx.batchUpdate(saveEventsQueryString, saveableEvents.second) { event ->
                 this["event_id"] = event.id.value
                 this["aggregate_id"] = aggregateId.value
@@ -134,12 +135,14 @@ class PostgresBackend(
                 .thenMany(persistedEvents)
                 .flatMap(updateProjections(ctx))
         }
+
+        return db.inTransaction(doSaveEvents)
     }
 
     override fun <E : DomainEvent> loadEventStream(
             tags: Set<DomainEventTag>,
             afterOffset: Long,
-            batchSize: Int) = db.inTransaction { ctx ->
+            batchSize: Int): Mono<EventStream> = db.inTransaction { ctx ->
 
         ctx.select(maxOffsetForEventsForTagsAfterOffsetQueryString, { it["max_offset"].longOrNull ?: -1 }) {
             this["$1"] = tags.map { tag -> tag.value }
@@ -164,7 +167,7 @@ class PostgresBackend(
     override fun <E : DomainEvent> loadEventStream(
             tags: Set<DomainEventTag>,
             afterInstant: Instant,
-            batchSize: Int) = db.inTransaction { ctx ->
+            batchSize: Int): Mono<EventStream> = db.inTransaction { ctx ->
 
         ctx.select(maxOffsetForEventsForTagsAfterInstantQueryString, { it["max_offset"].longOrNull ?: -1 }) {
             this["$1"] = tags.map { tag -> tag.value }
@@ -262,14 +265,14 @@ class PostgresBackend(
             )
     }
 
-    private val checkForConcurrentModification = { rowsAffected: Int ->
+    private val checkForConcurrentModification: (Int) -> Mono<Unit> = { rowsAffected ->
         when (rowsAffected) {
             0 -> Mono.error(OptimisticConcurrencyException)
             else -> Mono.empty<Unit>()
         }
     }
 
-    private fun <E: DomainEvent> updateProjections(ctx: DatabaseContext) = { event: PersistedEvent<E> ->
+    private fun <E: DomainEvent> updateProjections(ctx: DatabaseContext): (PersistedEvent<E>) -> Flux<PersistedEvent<E>> = { event ->
         Flux.concat(projections.flatMap { projection ->
             projection.update.getProjectionStatements(event).map { statement ->
                 ctx.update(statement.sql, statement.parameters).flatMap { rowsAffected ->

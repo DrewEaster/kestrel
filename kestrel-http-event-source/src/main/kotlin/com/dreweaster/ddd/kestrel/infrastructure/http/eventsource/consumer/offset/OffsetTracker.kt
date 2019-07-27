@@ -1,4 +1,4 @@
-package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset
+package com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset
 
 import reactor.core.publisher.Mono
 

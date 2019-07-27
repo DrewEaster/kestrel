@@ -1,4 +1,4 @@
-package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.reporting
+package com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.reporting
 
 interface BoundedContextHttpEventSourceReporter {
 

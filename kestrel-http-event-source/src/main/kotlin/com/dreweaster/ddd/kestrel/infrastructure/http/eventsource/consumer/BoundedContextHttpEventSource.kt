@@ -1,13 +1,13 @@
-package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer
+package com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer
 
 import com.dreweaster.ddd.kestrel.application.*
 import com.dreweaster.ddd.kestrel.application.scheduling.Job
 import com.dreweaster.ddd.kestrel.application.scheduling.Scheduler
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.HttpJsonEventQuery
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.OffsetTracker
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.reporting.BoundedContextHttpEventSourceReporter
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.HttpJsonEventQuery
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.OffsetTracker
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.reporting.BoundedContextHttpEventSourceReporter
 import com.github.salomonbrys.kotson.long
 import com.github.salomonbrys.kotson.nullString
 import com.github.salomonbrys.kotson.string
