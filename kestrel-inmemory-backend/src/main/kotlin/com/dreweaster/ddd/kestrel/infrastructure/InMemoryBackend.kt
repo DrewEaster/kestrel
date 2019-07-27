@@ -1,18 +1,16 @@
 package com.dreweaster.ddd.kestrel.infrastructure
 
 import com.dreweaster.ddd.kestrel.application.*
-import com.dreweaster.ddd.kestrel.application.pagination.Page
-import com.dreweaster.ddd.kestrel.application.pagination.Pageable
 import com.dreweaster.ddd.kestrel.application.AggregateId
 import com.dreweaster.ddd.kestrel.application.CausationId
 import com.dreweaster.ddd.kestrel.application.CorrelationId
 import com.dreweaster.ddd.kestrel.application.EventId
-import com.dreweaster.ddd.kestrel.application.ProcessManagerCorrelationId
 import com.dreweaster.ddd.kestrel.domain.Aggregate
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
-import com.dreweaster.ddd.kestrel.domain.ProcessManager
-import io.vavr.control.Try
+import reactor.core.publisher.Flux
+import reactor.core.publisher.Mono
+import java.lang.UnsupportedOperationException
 import java.time.Instant
 import java.util.*
 import kotlin.reflect.KClass
@@ -27,51 +25,33 @@ open class InMemoryBackend : Backend {
         events = emptyList()
     }
 
-    override suspend fun <E : DomainEvent, A : Aggregate<*, E, *>> persistAggregate(
-            aggregateType: A,
-            aggregateId: AggregateId,
-            commandHandler: suspend (PersistedAggregate<E, A>) -> GeneratedEvents<E>): Try<List<PersistedEvent<E>>> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId): Flux<PersistedEvent<E>> {
+        return Flux.fromIterable(persistedEventsFor(aggregateType, aggregateId))
     }
 
-    override suspend fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(
-            aggregateType: A,
-            aggregateId: AggregateId): List<PersistedEvent<E>> {
-        return persistedEventsFor(aggregateType, aggregateId)
+    override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId, afterSequenceNumber: Long): Flux<PersistedEvent<E>> {
+        return Flux.fromIterable(persistedEventsFor(aggregateType, aggregateId).filter { it.sequenceNumber > afterSequenceNumber })
     }
 
-    override suspend fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(
-            aggregateType: A,
-            aggregateId: AggregateId,
-            afterSequenceNumber: Long): List<PersistedEvent<E>> {
-        return persistedEventsFor(aggregateType, aggregateId).filter { it.sequenceNumber > afterSequenceNumber }
-    }
-
-    override suspend fun <E : DomainEvent, A : Aggregate<*, E, *>> saveEvents(
-            aggregateType: A,
-            aggregateId: AggregateId,
-            causationId: CausationId,
-            rawEvents: List<E>,
-            expectedSequenceNumber: Long,
-            correlationId: CorrelationId?): List<PersistedEvent<E>> {
-
+    override fun <E : DomainEvent, A : Aggregate<*, E, *>> saveEvents(aggregateType: A, aggregateId: AggregateId, causationId: CausationId, rawEvents: List<E>, expectedSequenceNumber: Long, correlationId: CorrelationId?): Flux<PersistedEvent<E>> {
         if (aggregateHasBeenModified(aggregateType, aggregateId, expectedSequenceNumber)) {
             throw OptimisticConcurrencyException
         }
 
         val persistedEvents = rawEvents.fold(Pair<Long, List<PersistedEvent<E>>>(expectedSequenceNumber + 1, emptyList())) { acc, e ->
             Pair(acc.first + 1, acc.second +
-                    PersistedEvent(
-                            EventId(UUID.randomUUID().toString()),
-                            aggregateType,
-                            aggregateId,
-                            causationId,
-                            correlationId,
-                            e::class as KClass<E>,
-                            1,
-                            e,
-                            Instant.now(),
-                            acc.first)
+                PersistedEvent(
+                    EventId(UUID.randomUUID().toString()),
+                    aggregateType,
+                    aggregateId,
+                    causationId,
+                    correlationId,
+                    e::class as KClass<E>,
+                    1,
+                    e,
+                    Instant.now(),
+                    acc.first
+                )
             )
         }.second
 
@@ -80,33 +60,15 @@ open class InMemoryBackend : Backend {
             nextOffset += 1
         }
 
-        return persistedEvents
+        return Flux.fromIterable(persistedEvents)
     }
 
-    override suspend fun <E : DomainEvent, P : ProcessManager<*, E, *>> persistProcessManagerEvent(eventId: EventId, rawEvent: E, processManagerType: P, processManagerCorrelationId: ProcessManagerCorrelationId, causationId: CausationId) {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    override fun <E : DomainEvent> loadEventStream(tags: Set<DomainEventTag>, afterOffset: Long, batchSize: Int): Mono<EventStream> {
+        return Mono.error(UnsupportedOperationException())
     }
 
-    override suspend fun findIdsForProcessManagersAwaitingProcessing(pageable: Pageable): Page<ProcessManagerCorrelationId> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
-    }
-
-    override suspend fun <E : DomainEvent, P : ProcessManager<*, E, *>> executeProcessManager(type: P, id: ProcessManagerCorrelationId, force: Boolean, retryStrategy: ProcessManagerRetryStrategy, processHandler: suspend (PersistedProcessManager<E, P>) -> ProcessManagerProcessingResult): ProcessManagerProcessingResult {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
-    }
-
-    suspend override fun <E : DomainEvent> loadEventStream(
-            tags: Set<DomainEventTag>,
-            afterOffset: Long,
-            batchSize: Int): EventStream {
-        throw UnsupportedOperationException()
-    }
-
-    suspend override fun <E : DomainEvent> loadEventStream(
-            tags: Set<DomainEventTag>,
-            afterInstant: Instant,
-            batchSize: Int): EventStream {
-        throw UnsupportedOperationException()
+    override fun <E : DomainEvent> loadEventStream(tags: Set<DomainEventTag>, afterInstant: Instant, batchSize: Int): Mono<EventStream> {
+        return Mono.error(UnsupportedOperationException())
     }
 
     @Suppress("UNCHECKED_CAST")

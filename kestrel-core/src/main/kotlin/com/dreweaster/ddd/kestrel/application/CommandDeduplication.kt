@@ -49,3 +49,10 @@ object TwentyFourHourWindowCommandDeduplication : CommandDeduplicationStrategyFa
         return TimeRestrictedCommandDeduplicationStrategy.Builder(Instant.now().minus(Duration.ofHours(24)))
     }
 }
+
+object SinceEpochCommandDeduplication : CommandDeduplicationStrategyFactory {
+
+    override fun newBuilder(): CommandDeduplicationStrategyBuilder {
+        return TimeRestrictedCommandDeduplicationStrategy.Builder(Instant.ofEpochSecond(0))
+    }
+}

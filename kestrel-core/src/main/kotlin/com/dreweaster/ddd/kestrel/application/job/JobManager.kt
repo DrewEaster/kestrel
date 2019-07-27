@@ -1,16 +1,20 @@
 package com.dreweaster.ddd.kestrel.application.job
 
-import io.reactivex.Completable
+import reactor.core.publisher.Mono
 import java.time.Duration
 
 interface Job {
 
     val name: String
 
-    fun execute(): Completable
+    fun execute(): Mono<Unit>
 }
 
 interface JobManager {
 
     fun scheduleManyTimes(repeatSchedule: Duration, job: Job)
+
+    // TODO: Terminate all scheduled jobs so that JVM can shutdown as gracefully as possible
+    // Should help for hot restart situations in development
+    fun shutdown(): Mono<Unit>
 }

@@ -1,12 +1,12 @@
 package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer
 
-import com.dreweaster.ddd.kestrel.application.eventstream.BoundedContextName
+import com.dreweaster.ddd.kestrel.application.BoundedContextName
 import com.dreweaster.ddd.kestrel.application.job.JobManager
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.OffsetManager
 import com.google.gson.JsonObject
-import io.ktor.client.HttpClient
+import reactor.netty.http.client.HttpClient
 
 /*
     TODO: Introduce event versioning support that allows events of different versions to be targeted differently.

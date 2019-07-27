@@ -7,5 +7,5 @@ sealed class UserCommand : DomainCommand
 data class RegisterUser(val username: String, val password: String): UserCommand()
 data class ChangePassword(val password: String): UserCommand()
 data class ChangeUsername(val username: String): UserCommand()
+data class Login(val password: String): UserCommand()
 object UnlockUser: UserCommand()
-object IncrementFailedLoginAttempts : UserCommand()

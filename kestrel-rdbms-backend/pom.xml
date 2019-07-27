@@ -9,14 +9,9 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>kestrel-r2dbc-postgres-backend</artifactId>
+    <artifactId>kestrel-rdbms-backend</artifactId>
 
     <repositories>
-        <repository>
-            <id>squash</id>
-            <name>Squash</name>
-            <url>https://dl.bintray.com/kotlin/squash/</url>
-        </repository>
         <repository>
             <id>jcenter</id>
             <name>jcenter</name>
@@ -40,7 +35,6 @@
         </repository>
     </repositories>
 
-
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
@@ -58,28 +52,6 @@
             <version>4.2.0</version>
         </dependency>
         <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.zaxxer</groupId>
-            <artifactId>HikariCP</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.jetbrains.exposed</groupId>
-            <artifactId>exposed</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-            <version>1.4.197</version>
-        </dependency>
-        <dependency>
-            <groupId>io.reactiverse</groupId>
-            <artifactId>reactive-pg-client</artifactId>
-            <version>0.11.3</version>
-        </dependency>
-        <dependency>
             <groupId>io.r2dbc</groupId>
             <artifactId>r2dbc-postgresql</artifactId>
             <version>1.0.0.M6</version>
@@ -88,26 +60,6 @@
             <groupId>io.r2dbc</groupId>
             <artifactId>r2dbc-client</artifactId>
             <version>1.0.0.M6</version>
-        </dependency>
-        <dependency>
-            <groupId>org.jetbrains.squash</groupId>
-            <artifactId>squash-core</artifactId>
-            <version>0.2.4</version>
-        </dependency>
-        <dependency>
-            <groupId>org.jetbrains.squash</groupId>
-            <artifactId>squash-postgres</artifactId>
-            <version>0.2.4</version>
-        </dependency>
-        <dependency>
-            <groupId>org.jooq</groupId>
-            <artifactId>jooq</artifactId>
-            <version>3.11.11</version>
-        </dependency>
-        <dependency>
-            <groupId>org.jooq</groupId>
-            <artifactId>jooq-meta</artifactId>
-            <version>3.11.11</version>
         </dependency>
         <dependency>
             <groupId>io.arrow-kt</groupId>

@@ -44,7 +44,9 @@ class Projection<E: DomainEvent, A: Aggregate<*, E, *>>(val aggregateType: KClas
     }
 
     fun statement(sql: String, body: ParameterBuilder.() -> Unit): ProjectionStatement {
-
+        val parameterBuilder = ParameterBuilder()
+        body(parameterBuilder)
+        return ProjectionStatement(sql, parameterBuilder.values)
     }
 
     fun String.params(vararg params: Pair<String, Any?>) = ProjectionStatement(sql = this, parameters = params.toMap())

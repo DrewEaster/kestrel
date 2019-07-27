@@ -1,12 +1,13 @@
 package com.dreweaster.ddd.kestrel.infrastructure.cluster
 
-import io.reactivex.Single
+import reactor.core.publisher.Mono
+
 interface ClusterManager {
 
-    fun iAmTheLeader(): Single<Boolean>
+    fun iAmTheLeader(): Mono<Boolean>
 }
 
 object LocalClusterManager : ClusterManager {
 
-    override fun iAmTheLeader() = Single.just(true)
+    override fun iAmTheLeader() = Mono.just(true)
 }

@@ -6,11 +6,10 @@ import com.dreweaster.ddd.kestrel.domain.aggregates.user.*
 import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.AtomicDatabaseProjection
 import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.Database
 import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.ResultRow
-import com.google.inject.Inject
 
 import reactor.core.publisher.Mono
 
-class AtomicUserProjection @Inject constructor(private val database: Database): AtomicDatabaseProjection(), UserReadModel {
+class AtomicUserProjection constructor(private val database: Database): AtomicDatabaseProjection(), UserReadModel {
 
     private val userDtoMapper: (ResultRow) -> UserDTO = {
         UserDTO(
@@ -61,11 +60,11 @@ class AtomicUserProjection @Inject constructor(private val database: Database): 
         }
     }
 
-    override fun findAllUsers(): Mono<List<UserDTO>> = database.inTransaction { tx ->
+    override fun findAllUsers(): Mono<List<UserDTO>> = database.withContext { tx ->
         tx.select("SELECT * from users") { userDtoMapper(it) }
     }.collectList()
 
-    override fun findUserById(id: String): Mono<UserDTO?> = database.inTransaction { tx ->
+    override fun findUserById(id: String): Mono<UserDTO?> = database.withContext { tx ->
         tx.select("SELECT * from usr where id = $1", "$1" to id) { userDtoMapper(it) }
     }.collectList().map { it.firstOrNull() }
 }

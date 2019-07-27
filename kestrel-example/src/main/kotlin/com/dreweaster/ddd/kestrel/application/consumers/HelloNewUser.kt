@@ -1,28 +1,24 @@
 package com.dreweaster.ddd.kestrel.application.consumers
 
-import com.dreweaster.ddd.kestrel.application.eventstream.BoundedContextEventStreamSources
-import com.dreweaster.ddd.kestrel.application.eventstream.EventStreamSubscriptionEdenPolicy.FROM_NOW
+import com.dreweaster.ddd.kestrel.application.BoundedContextEventSources
+import com.dreweaster.ddd.kestrel.application.BoundedContextSubscriptionEdenPolicy.FROM_NOW
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.UserRegistered
 import com.dreweaster.ddd.kestrel.application.consumers.BoundedContexts.UserContext
-import com.dreweaster.ddd.kestrel.application.eventstream.StatelessEventConsumer
-import com.google.inject.Inject
-import com.google.inject.Singleton
-import io.reactivex.Completable
-import io.reactivex.Completable.*
+import com.dreweaster.ddd.kestrel.application.StatelessProcessManager
 import org.slf4j.LoggerFactory
+import reactor.core.publisher.Mono.*
 
-@Singleton
-class HelloNewUser @Inject constructor(boundedContexts: BoundedContextEventStreamSources): StatelessEventConsumer(boundedContexts) {
+class HelloNewUser constructor(boundedContexts: BoundedContextEventSources): StatelessProcessManager(boundedContexts) {
 
     private val LOG = LoggerFactory.getLogger(HelloNewUser::class.java)
 
     init {
-        consumer {
+        processManager(name = "hello-new-user") {
 
-            subscribe(context = UserContext, subscriptionName = "hello-new-user", edenPolicy = FROM_NOW) {
+            subscribe(context = UserContext, edenPolicy = FROM_NOW) {
 
                 event<UserRegistered> { event, _ ->
-                    fromRunnable { LOG.info("Hello ${event.username}!") }
+                    fromRunnable<Unit> { LOG.info("Hello ${event.username}!") }
                 }
             }
         }.start()

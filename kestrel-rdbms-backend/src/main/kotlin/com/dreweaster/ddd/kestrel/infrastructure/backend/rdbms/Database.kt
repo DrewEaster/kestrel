@@ -58,5 +58,6 @@ interface DatabaseContext {
 }
 
 interface Database {
+    fun <T> withContext(f: (DatabaseContext) -> Flux<out T>): Flux<T>
     fun <T> inTransaction(f: (DatabaseContext) -> Flux<out T>): Flux<T>
 }

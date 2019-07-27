@@ -1,31 +1,28 @@
 package com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset
 
-import com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc.Database
-import com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc.upsert
-import org.jetbrains.exposed.sql.Table
-import org.jetbrains.exposed.sql.select
-import com.dreweaster.ddd.kestrel.infrastructure.backend.jdbc.*
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventstream.consumer.offset.PostgresOffsetManager.Offsets.primaryKeyConstraintConflictTarget
+import com.dreweaster.ddd.kestrel.application.UnexpectedNumberOfRowsAffectedInUpdate
+import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.Database
+import reactor.core.publisher.Mono
 
 class PostgresOffsetManager(private val database: Database) : OffsetManager {
 
-    object Offsets : Table("event_stream_offsets") {
-        val name = varchar("name", 100).primaryKey()
-        val lastProcessedOffset = long("last_processed_offset")
-        val primaryKeyConstraintConflictTarget = primaryKeyConstraintConflictTarget(name)
-    }
+    override fun getOffset(offsetKey: String): Mono<Long?> = database.withContext { ctx ->
+        ctx.select("SELECT last_processed_offset FROM event_stream_offsets WHERE name = $1", { it["last_processed_offset"].long }) {
+            this["$1"] = offsetKey
+        }
+    }.collectList().map { it.firstOrNull() }
 
-    override fun getOffset(offsetKey: String) = database.transaction {
-        Offsets.slice(Offsets.lastProcessedOffset).select { Offsets.name eq offsetKey }.map { row -> row[Offsets.lastProcessedOffset] }.firstOrNull()
-    }
+    override fun saveOffset(offsetKey: String, offset: Long): Mono<Unit> = database.inTransaction { ctx ->
+        ctx.update("INSERT INTO event_stream_offsets (name, last_processed_offset) VALUES($1, $2) ON CONFLICT ON CONSTRAINT name_pkey DO UPDATE SET last_processed_offset = $2") {
+            this["$1"] = offsetKey
+            this["$2"] = offset
+        }.flatMap(validateSingleRowAffected)
+    }.single()
 
-    override fun saveOffset(offsetKey: String, offset: Long) {
-        database.transaction { tx ->
-            val rowsAffected = Offsets.upsert(primaryKeyConstraintConflictTarget, { Offsets.name eq offsetKey }) {
-                it[name] = offsetKey
-                it[lastProcessedOffset] = offset
-            }
-            if(rowsAffected != 1) tx.rollback(UnexpectedNumberOfRowsAffectedInUpdate(rowsAffected, 1))
+    private val validateSingleRowAffected = { rowsAffected: Int ->
+        when (rowsAffected) {
+            1 -> Mono.just(Unit)
+            else -> Mono.error(UnexpectedNumberOfRowsAffectedInUpdate(1, rowsAffected))
         }
     }
 }

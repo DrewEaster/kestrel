@@ -19,7 +19,7 @@
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>kestrel-jdbc-backend</artifactId>
+            <artifactId>kestrel-rdbms-backend</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>

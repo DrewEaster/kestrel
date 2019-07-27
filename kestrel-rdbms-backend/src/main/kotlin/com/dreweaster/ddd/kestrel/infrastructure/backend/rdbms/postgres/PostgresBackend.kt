@@ -120,11 +120,11 @@ class PostgresBackend(
                 this["sequence_number"] = event.sequenceNumber
             }
 
-            val saveAggregate = { ctx.update(saveAggregateQueryString) {
+            val saveAggregate = ctx.update(saveAggregateQueryString) {
                 this["$1"] = aggregateId.value
                 this["$2"] = aggregateType.blueprint.name
                 this["$3"] = saveableEvents.second.last().sequenceNumber
-            }}
+            }
 
             val persistedEvents = Flux.fromIterable(saveableEvents.second.map { it.toPersistedEvent() })
 
@@ -144,7 +144,7 @@ class PostgresBackend(
         ctx.select(maxOffsetForEventsForTagsAfterOffsetQueryString, { it["max_offset"].longOrNull ?: -1 }) {
             this["$1"] = tags.map { tag -> tag.value }
             this["$2"] = afterOffset
-        }.single().flatMap { maxOffset ->
+        }.flatMap { maxOffset ->
             ctx.select(loadEventsForTagsAfterOffsetQueryString, rowToStreamEvent<E>()) {
                 this["$1"] = tags.map { tag -> tag.value }
                 this["$2"] = afterOffset
@@ -159,7 +159,7 @@ class PostgresBackend(
                     maxOffset = if(maxOffset == -1L) events.lastOrNull()?.offset ?: -1L else maxOffset)
             }
         }
-    }.single()!!
+    }.single()
 
     override fun <E : DomainEvent> loadEventStream(
             tags: Set<DomainEventTag>,
@@ -169,7 +169,7 @@ class PostgresBackend(
         ctx.select(maxOffsetForEventsForTagsAfterInstantQueryString, { it["max_offset"].longOrNull ?: -1 }) {
             this["$1"] = tags.map { tag -> tag.value }
             this["$2"] = afterInstant
-        }.single().flatMap { maxOffset ->
+        }.flatMap { maxOffset ->
             ctx.select(loadEventsForTagsAfterInstantQueryString, rowToStreamEvent<E>()) {
                 this["$1"] = tags.map { tag -> tag.value }
                 this["$2"] = afterInstant
@@ -184,7 +184,7 @@ class PostgresBackend(
                     maxOffset = if(maxOffset == -1L) events.lastOrNull()?.offset ?: -1L else maxOffset)
             }
         }
-    }.single()!!
+    }.single()
 
     private fun <E: DomainEvent> rowToPersistedEvent(aggregateType: Aggregate<*,E,*>): (ResultRow) -> PersistedEvent<E>  {
         return { row ->

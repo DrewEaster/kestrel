@@ -10,31 +10,31 @@ import com.github.salomonbrys.kotson.jsonArray
 import com.github.salomonbrys.kotson.jsonObject
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import io.reactivex.Single
+import reactor.core.publisher.Mono
 
 class BoundedContextHttpJsonEventStreamProducer(val backend: Backend) {
 
     private val jsonParser = JsonParser()
 
-    fun produceFrom(urlQueryParameters: Map<String, List<String>>): Single<JsonObject> {
-        return convertStreamToJsonResponse(fetchEventStream(HttpJsonEventQuery.from(urlQueryParameters)))
+    fun produceFrom(urlQueryParameters: Map<String, List<String>>): Mono<JsonObject> {
+        return convertStreamToJsonResponse(fetchEventStream(HttpJsonEventQuery.from(urlQueryParameters ?: emptyMap())))
     }
 
-    private fun fetchEventStream(query: HttpJsonEventQuery): Single<EventStream> {
+    private fun fetchEventStream(query: HttpJsonEventQuery): Mono<EventStream> {
         return if(query.afterTimestamp != null) {
             backend.loadEventStream<DomainEvent>(
-                    query.tags,
-                    query.afterTimestamp,
-                    query.batchSize)
+                query.tags,
+                query.afterTimestamp,
+                query.batchSize)
         } else {
             backend.loadEventStream<DomainEvent>(
-                    query.tags,
-                    query.afterOffset ?: -1L,
-                    query.batchSize)
+                query.tags,
+                query.afterOffset ?: -1L,
+                query.batchSize)
         }
     }
 
-    private fun convertStreamToJsonResponse(singleStream: Single<EventStream>) =
+    private fun convertStreamToJsonResponse(singleStream: Mono<EventStream>) =
         singleStream.map { stream ->
             jsonObject(
                 "tags" to jsonArray(stream.tags.map { it.value }),

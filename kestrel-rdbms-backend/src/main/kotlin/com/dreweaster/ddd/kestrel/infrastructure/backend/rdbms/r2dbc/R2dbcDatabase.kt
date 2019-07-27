@@ -1,29 +1,23 @@
 package com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.r2dbc
 
-import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.Database
-import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.DatabaseContext
-import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.ResultColumn
-import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.ResultRow
+import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.*
 import io.r2dbc.client.Handle
 import io.r2dbc.client.R2dbc
 import io.r2dbc.spi.Row
 import reactor.core.publisher.Flux
+import reactor.core.publisher.Mono
 import java.math.BigDecimal
 import java.time.*
 import java.util.*
 
-//    var configuration = PostgresqlConnectionConfiguration.builder()
-//        .host("<host>")
-//        .database("<database>")
-//        .username("<username>")
-//        .password("<password>")
-//        .build()
-//
-//    var r2dbc = R2dbc(PostgresqlConnectionFactory(configuration))
-
 class R2dbcDatabase(val r2dbc: R2dbc): Database {
 
     override fun <T> inTransaction(f: (DatabaseContext) -> Flux<out T>): Flux<T> = r2dbc.inTransaction { handle ->
+        val queryTransaction = R2dbcDatabaseHandle(handle)
+        f(queryTransaction)
+    }
+
+    override fun <T> withContext(f: (DatabaseContext) -> Flux<out T>): Flux<T> = r2dbc.withHandle { handle ->
         val queryTransaction = R2dbcDatabaseHandle(handle)
         f(queryTransaction)
     }
@@ -71,8 +65,32 @@ class R2dbcDatabaseHandle(private val handle: Handle): DatabaseContext {
         else -> it
     }}
 
-    override fun <T> select(sql: String, vararg params: Pair<String, Any>, mapper: (ResultRow) -> T): Flux<out T> {
+    override fun <T> select(sql: String, mapper: (ResultRow) -> T, body: ParameterBuilder.(T) -> Unit): Flux<out T> {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    }
+
+    override fun <T> select(sql: String, vararg params: Pair<String, Any?>, mapper: (ResultRow) -> T): Flux<out T> {
         return handle.select(sql, params.map(paramValueMapper)).mapRow { row -> mapper(R2dbcResultRow(row)) }
+    }
+
+    override fun <T> select(sql: String, params: Map<String, Any?>, mapper: (ResultRow) -> T): Flux<out T> {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    }
+
+    override fun <T> batchUpdate(sql: String, values: Iterable<T>, body: ParameterBuilder.(T) -> Unit): Mono<Unit> {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    }
+
+    override fun update(sql: String, body: ParameterBuilder.() -> Unit): Mono<Int> {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    }
+
+    override fun update(sql: String, vararg params: Pair<String, Any?>): Mono<Int> {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    }
+
+    override fun update(sql: String, params: Map<String, Any?>): Mono<Int> {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
     }
 
     override fun <T> select(sql: String, mapper: (ResultRow) -> T): Flux<out T> {
