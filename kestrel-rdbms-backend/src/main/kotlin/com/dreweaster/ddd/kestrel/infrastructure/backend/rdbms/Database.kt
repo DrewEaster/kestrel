@@ -40,16 +40,16 @@ interface ResultRow {
     operator fun get(columnName: String): ResultColumn
 }
 
-data class SelectParameterBuilder(val values: MutableMap<String, Any?> = LinkedHashMap()) {
+data class SelectParameterBuilder(val values: MutableMap<String, Any> = mutableMapOf()) {
 
-    operator fun set(column: String, value: Any?) {
+    operator fun set(column: String, value: Any) {
         values[column] = value
     }
 }
 
 data class NullValue(val type: KClass<out Any>)
 
-data class UpdateParameterBuilder(val values: MutableMap<String, Any> = LinkedHashMap()) {
+data class UpdateParameterBuilder(val values: MutableMap<String, Any> = mutableMapOf()) {
 
     inline fun <reified T: Any> nullable(value: T?): Any = when(value) {
         null -> NullValue(T::class)
@@ -65,8 +65,8 @@ data class UpdateParameterBuilder(val values: MutableMap<String, Any> = LinkedHa
 
 interface DatabaseContext {
     fun <T> select(sql: String, mapper: (ResultRow) -> T, body: SelectParameterBuilder.() -> Unit): Flux<out T>
-    fun <T> select(sql: String, vararg params: Pair<String, Any?>, mapper: (ResultRow) -> T): Flux<out T>
-    fun <T> select(sql: String, params: Map<String, Any?>, mapper: (ResultRow) -> T): Flux<out T>
+    fun <T> select(sql: String, vararg params: Pair<String, Any>, mapper: (ResultRow) -> T): Flux<out T>
+    fun <T> select(sql: String, params: Map<String, Any>, mapper: (ResultRow) -> T): Flux<out T>
     fun <T> select(sql: String, mapper: (ResultRow) -> T): Flux<out T>
     fun <T> batchUpdate(sql: String, values: Iterable<T>, body: UpdateParameterBuilder.(T) -> Unit): Flux<Int>
     fun update(sql: String, body: UpdateParameterBuilder.() -> Unit): Flux<Int>

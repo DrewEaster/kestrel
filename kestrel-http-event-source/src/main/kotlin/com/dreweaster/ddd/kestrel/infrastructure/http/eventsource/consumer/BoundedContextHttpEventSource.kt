@@ -49,6 +49,7 @@ interface BoundedContextHttpEventSourceConfiguration {
 // TODO: Need to factor skipped events into batch size - i.e. always event minimum of batch size even if that means fetching multiple batches
 // TODO: Renable monitoring
 class BoundedContextHttpEventSource(
+        val name: BoundedContextName,
         val httpClient: HttpClient,
         val configuration: BoundedContextHttpEventSourceConfiguration,
         eventMappers: List<HttpJsonEventMapper<*>>,
@@ -93,7 +94,7 @@ class BoundedContextHttpEventSource(
             tags : Set<DomainEventTag>,
             subscriberConfiguration: BoundedContextSubscriberConfiguration) : Job {
 
-        override val name = subscriberConfiguration.name
+        override val name = "${this@BoundedContextHttpEventSource.name.name}_${subscriberConfiguration.name}"
 
         private val requestFactory = HttpEventStreamSubscriptionEdenPolicy.from(subscriberConfiguration.edenPolicy)
             .newRequestFactory(
@@ -106,7 +107,7 @@ class BoundedContextHttpEventSource(
                 .flatMapMany(fetchEvents)
                 .flatMap(handleEvent)
                 .flatMap(saveOffset)
-                .single()
+                .then(Mono.just(Unit))
         }
 
         private val handleEvent: (JsonObject) -> Mono<Long> = { eventJson ->

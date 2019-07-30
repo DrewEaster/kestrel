@@ -22,7 +22,7 @@ import com.dreweaster.ddd.kestrel.infrastructure.driving.eventstream.UserContext
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.BoundedContextHttpEventSourceConfiguration
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.PostgresOffsetTracker
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.producer.BoundedContextHttpJsonEventStreamProducer
-import com.dreweaster.ddd.kestrel.infrastructure.scheduling.ClusterAwareReactiveScheduler
+import com.dreweaster.ddd.kestrel.infrastructure.scheduling.ClusterAwareScheduler
 import com.github.salomonbrys.kotson.jsonArray
 import com.github.salomonbrys.kotson.jsonObject
 import com.github.salomonbrys.kotson.string
@@ -38,6 +38,7 @@ import io.r2dbc.client.R2dbc
 import io.r2dbc.postgresql.PostgresqlConnectionConfiguration
 import io.r2dbc.postgresql.PostgresqlConnectionFactory
 import org.flywaydb.core.Flyway
+import org.reactivestreams.Publisher
 import reactor.netty.http.server.HttpServer
 import reactor.core.publisher.Mono
 import reactor.netty.NettyOutbound
@@ -46,11 +47,15 @@ import reactor.netty.http.server.HttpServerRequest
 import reactor.netty.http.server.HttpServerResponse
 import java.time.Duration
 
+fun main(args: Array<String>) {
+    Application.run()
+}
+
 object Application {
 
     private val jsonParser = JsonParser()
 
-    fun main(args: Array<String>) {
+    fun run() {
 
         // Migrate DB
         val flyway = Flyway()
@@ -78,7 +83,7 @@ object Application {
         val userReadModel = AtomicUserProjection(database)
         val backend = PostgresBackend(database, payloadMapper, listOf(userReadModel))
         val domainModel = EventSourcedDomainModel(backend, TwentyFourHourWindowCommandDeduplication)
-        val jobManager = ClusterAwareReactiveScheduler(LocalCluster)
+        val jobManager = ClusterAwareScheduler(LocalCluster)
         val offsetManager = PostgresOffsetTracker(database)
 
         val streamSourceFactories = listOf(UserContextHttpEventStreamSourceFactory)
@@ -99,7 +104,7 @@ object Application {
                 routes
                     .get("/events") { request, response ->
                         val producer = BoundedContextHttpJsonEventStreamProducer(backend)
-                        response.sendObjectAsJson(producer.produceFrom(request.queryParams())) { it }
+                        response.sendObjectAsJson(producer.produceFrom(request.queryParams()).map { it.nullable() }) { it }
                     }
                     .get("/users") { _, response ->
                         response.sendListAsJson(userReadModel.findAllUsers(), userToJsonObject)
@@ -155,12 +160,14 @@ object Application {
         return this.receive().aggregate().asString().map { jsonParser.parse(it).asJsonObject }.map(mapper)
     }
 
-    private fun <T> HttpServerResponse.sendObjectAsJson(obj: Mono<T>, mapper: (T) -> JsonObject): NettyOutbound {
-        val jsonString = obj.map { mapper(it) }.map { it.toString() }
-        return with(this) {
-            status(OK)
-            header(CONTENT_TYPE, "application/json")
-            sendString(jsonString)
+    private fun <T> HttpServerResponse.sendObjectAsJson(obj: Mono<T?>, mapper: (T) -> JsonObject): Publisher<Void> {
+        return obj.flatMap { maybeObject ->
+            maybeObject?.let { obj ->
+                this.status(OK)
+                    .header(CONTENT_TYPE, "application/json")
+                    .sendString(Mono.just(mapper(obj).toString()))
+                    .then()
+            } ?: this.sendNotFound()
         }
     }
 
@@ -172,6 +179,8 @@ object Application {
             sendString(jsonString)
         }
     }
+
+    private fun <T> T.nullable(): T? = this
 }
 
 data class RegisterUserRequest(val id: AggregateId, val username: String, val password: String) {

@@ -26,11 +26,12 @@ abstract class BoundedContextHttpEventSourceFactory(val name: BoundedContextName
             jobManager: Scheduler): BoundedContextHttpEventSource {
 
         return BoundedContextHttpEventSource(
-                httpClient = httpClient,
-                configuration = configuration,
-                jobManager = jobManager,
-                offsetManager = offsetManager,
-                eventMappers = mappers.build()
+            name = name,
+            httpClient = httpClient,
+            configuration = configuration,
+            jobManager = jobManager,
+            offsetManager = offsetManager,
+            eventMappers = mappers.build()
         )
     }
 

@@ -5,10 +5,10 @@ import io.r2dbc.client.Handle
 import io.r2dbc.client.R2dbc
 import io.r2dbc.spi.Row
 import reactor.core.publisher.Flux
-import reactor.core.publisher.Mono
 import java.math.BigDecimal
 import java.time.*
 import java.util.*
+import kotlin.text.Regex.Companion.escapeReplacement
 
 class R2dbcDatabase(val r2dbc: R2dbc): Database {
 
@@ -71,18 +71,30 @@ class R2dbcDatabaseHandle(private val handle: Handle): DatabaseContext {
         return select(sql, parameterBuilder.values, mapper)
     }
 
-    override fun <T> select(sql: String, vararg params: Pair<String, Any?>, mapper: (ResultRow) -> T): Flux<out T> {
+    override fun <T> select(sql: String, vararg params: Pair<String, Any>, mapper: (ResultRow) -> T): Flux<out T> {
         return select(sql, params.toMap(), mapper)
     }
 
     override fun <T> select(sql: String, mapper: (ResultRow) -> T): Flux<out T> {
-        return handle.select(sql).mapRow { row -> mapper(R2dbcResultRow(row)) }
+        return select(sql, emptyMap(), mapper)
     }
 
-    override fun <T> select(sql: String, params: Map<String, Any?>, mapper: (ResultRow) -> T): Flux<out T> {
-        return handle.select(sql, params.map(paramValueMapper)).mapRow { row -> mapper(R2dbcResultRow(row)) }
+    override fun <T> select(sql: String, params: Map<String, Any>, mapper: (ResultRow) -> T): Flux<out T> {
+        return when {
+            params.isEmpty() -> handle.select(sql).mapRow { row -> mapper(R2dbcResultRow(row)) }
+            else -> {
+                val (translatedSql, translatedParameters) = transformQuery(sql, params)
+                val query = handle.createQuery(translatedSql)
+                translatedParameters.forEach{ (column, value) -> when(value) {
+                    is NullValue -> query.bindNull(column, value.type.java)
+                    else -> query.bind(column, value)
+                }}
+                query.add().mapRow { row -> mapper(R2dbcResultRow(row)) }
+            }
+        }
     }
 
+    // FIXME: does not support list parameter expansion
     override fun <T> batchUpdate(sql: String, values: Iterable<T>, body: UpdateParameterBuilder.(T) -> Unit): Flux<Int> {
         val update = handle.createUpdate(sql)
         values.forEach { value ->
@@ -90,7 +102,7 @@ class R2dbcDatabaseHandle(private val handle: Handle): DatabaseContext {
             body(parameterBuilder, value)
             parameterBuilder.values.forEach { (column, value) -> when(value) {
                 is NullValue -> update.bindNull(column, value.type.java)
-                else -> update.bind(column, value)
+                else -> update.bind(column, paramValueMapper(value))
             }}
             update.add()
         }
@@ -108,11 +120,83 @@ class R2dbcDatabaseHandle(private val handle: Handle): DatabaseContext {
     }
 
     override fun update(sql: String, params: Map<String, Any>): Flux<Int> {
-        val update = handle.createUpdate(sql)
-        params.forEach { (column, value) -> when(value) {
+        val (translatedSql, translatedParameters) = transformQuery(sql, params)
+        val update = handle.createUpdate(translatedSql)
+        translatedParameters.forEach { (column, value) -> when(value) {
             is NullValue -> update.bindNull(column, value.type.java)
             else -> update.bind(column, value)
         }}
         return update.execute()
     }
+
+    private val extractParametersFromSqlString = Regex("(:.\\w*)")
+
+    private fun transformQuery(sql: String, params: Map<String, Any>): Pair<String, Map<String, Any>> {
+        val (expandedSql, expandedParams) = expandInClauses(sql, params)
+        val sqlParameterNames = extractParametersFromSqlString.findAll(expandedSql).map { match -> match.groups[1]?.value }.filter { it != null }.map { it!! }.toList()
+        return sqlParameterNames.foldIndexed(expandedSql to emptyMap()) { index, (transformedSql, transformedParams), name: String ->
+            val transformedParameterName = "$${index + 1}"
+            val parameterValue = expandedParams[name]
+            val replaceRegEx = Regex("(:\\b$name\\b)")
+            val newSql = transformedSql.replace(replaceRegEx, escapeReplacement(transformedParameterName))
+            newSql to (transformedParams + (transformedParameterName to paramValueMapper(parameterValue!!)))
+        }
+    }
+
+    private val extractParametersWithinInClauses = Regex("IN\\(:(.\\w*)\\)")
+
+    private fun expandInClauses(sql: String, params: Map<String, Any>): Pair<String, Map<String, Any>> {
+        val expandableParameterNames = extractParametersWithinInClauses.findAll(sql).map { match -> match.groups[1]?.value }.filter { it != null }.map { it!! }.toList()
+        val (expandedSql, inClauseParams) = expandableParameterNames.fold(sql to emptyMap<String, Any>()) { (sql, expandedParams), name: String ->
+            val parameterValue = params[name] as Iterable<*> // TODO: will error if not defined or not a list
+            val expandedParameterNames = parameterValue.mapIndexed { index, _ -> ":${name}_$index"}.joinToString(", ")
+            val replaceRegEx = Regex("IN\\s*?\\(\\s*?:$name\\s*?\\)")
+            sql.replace(replaceRegEx, "IN ($expandedParameterNames)") to expandedParams + (parameterValue.mapIndexed { index, v -> "${name}_$index" to v!!}).toMap()
+        }
+        return expandedSql to params - expandableParameterNames + inClauseParams
+    }
 }
+
+//fun main(args: Array<String>) {
+//
+//    val extractParametersFromSqlString = Regex(":(.\\w*)")
+//    val extractParametersWithinInClauses = Regex("IN\\s*?\\(\\s*?:(.\\w*)\\s*?\\)")
+//
+//    fun expandInClauses(sql: String, params: Map<String, Any>): Pair<String, Map<String, Any>> {
+//        val expandableParameterNames = extractParametersWithinInClauses.findAll(sql).map { match -> match.groups[1]?.value }.filter { it != null }.map { it!! }.toList()
+//        val (expandedSql, inClauseParams) = expandableParameterNames.fold(sql to emptyMap<String, Any>()) { (sql, expandedParams), name: String ->
+//            val parameterValue = params[name] as Iterable<*> // TODO: will error if not defined or not a list
+//            val expandedParameterNames = parameterValue.mapIndexed { index, _ -> ":${name}_$index"}.joinToString(", ")
+//            val replaceRegEx = Regex("IN\\s*?\\(\\s*?:$name\\s*?\\)")
+//            sql.replace(replaceRegEx, "IN ($expandedParameterNames)") to expandedParams + (parameterValue.mapIndexed { index, v -> "${name}_$index" to v!!}).toMap()
+//        }
+//        return expandedSql to params - expandableParameterNames + inClauseParams
+//    }
+//
+//    fun transformQuery(sql: String, params: Map<String, Any>): Pair<String, Map<String, Any>> {
+//        val sqlParameterNames = extractParametersFromSqlString.findAll(sql).map { match -> match.groups[1]?.value }.filter { it != null }.map { it!! }.toList()
+//        return sqlParameterNames.foldIndexed(sql to emptyMap()) { index, (transformedSql, transformedParams), name: String ->
+//            val transformedParameterName = "$${index + 1}"
+//            val parameterValue = params[name]
+//            val replaceRegEx = Regex("(:\\b$name\\b)")
+//            val newSql = transformedSql.replace(replaceRegEx, escapeReplacement(transformedParameterName))
+//            newSql to (transformedParams + (transformedParameterName to parameterValue!!))
+//        }
+//    }
+//
+//    val params = mapOf(
+//        "values" to listOf(1,2,3),
+//        "types" to listOf("atype", "btype", "ctype", "dtype", "etype"),
+//        "date" to Instant.now(),
+//        "age" to 18
+//    )
+//
+//    val sql = "SELECT * from user where id IN (:values) AND date > :date AND age = :age AND type IN (:types)"
+//    val (expandedSql, expandedParams) = expandInClauses(sql, params)
+//    println(expandedSql)
+//    println(expandedParams)
+//
+//    val (transformedSql, transformedParams) = transformQuery(expandedSql, expandedParams)
+//    println(transformedSql)
+//    println(transformedParams)
+//}

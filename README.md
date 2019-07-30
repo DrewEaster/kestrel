@@ -5,6 +5,9 @@ TODO
 ====
 
 * Complete the reactive refactor
+    * Change statement parameters to be named rather than $ based
+    * Expand collections into SQL bind parameters
+    * Switch all Mono<Unit> to Mono<Void>
 * Use Kotlin inline classes for IDs
 * Support for dry run command handling (i.e. handle command but don't persist events)
 * Support for automatic snapshotting of event sourced entities
@@ -21,3 +24,4 @@ TODO
 * Register process managers with application rather than start themselves
 * Default JSON mapper functionality for v1 of events
 * Create CLI toolbelt for auto generation of skeleton code
+* Websocket events subscriptions and streams - abstract difference between fetching straight from backend store or via external stream (kafka/kinesis)

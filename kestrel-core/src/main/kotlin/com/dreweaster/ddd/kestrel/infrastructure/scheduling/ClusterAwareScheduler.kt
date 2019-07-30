@@ -14,9 +14,9 @@ import java.util.concurrent.Executors
 /**
  * TODO: Need to implement shutdown of jobs
  */
-class ClusterAwareReactiveScheduler(private val clusterManager: Cluster): Scheduler {
+class ClusterAwareScheduler(private val clusterManager: Cluster): Scheduler {
 
-    private val LOG = LoggerFactory.getLogger(ClusterAwareReactiveScheduler::class.java)
+    private val LOG = LoggerFactory.getLogger(ClusterAwareScheduler::class.java)
 
     private val jobs = mutableListOf<Disposable>()
 
@@ -31,9 +31,9 @@ class ClusterAwareReactiveScheduler(private val clusterManager: Cluster): Schedu
             .onErrorResume { fromCallable { LOG.error("Job execution failed: '${job.name}'", it) } }
             .repeat()
             .subscribe(
-                { _ -> LOG.info("Job executed successfully: '${job.name}'") },
-                { error -> LOG.error("Job scheduling unexpectedly completed: '${job.name}'", error) },
-                { LOG.error("Job scheduling unexpectedly completed: '${job.name}'") }
+                { _ -> LOG.info("Job execution complete: '${job.name}'") },
+                { error -> LOG.error("Job scheduling unexpectedly ended: '${job.name}'", error) },
+                { LOG.error("Job scheduling unexpectedly ended: '${job.name}'") }
             )
         )
     }
