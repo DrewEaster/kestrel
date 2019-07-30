@@ -14,6 +14,12 @@ class PostgresBackend(
         private val mapper: EventPayloadMapper,
         private val readModels: List<SynchronousJdbcReadModel>) : Backend {
 
+    private val maxOffsetForAllEventsQueryString =
+        """
+            SELECT MAX(global_offset) as max_offset
+            FROM domain_event
+        """
+
     private val loadEventsForAggregateInstanceQueryString =
         """
             SELECT global_offset, event_id, aggregate_id, aggregate_type, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number
@@ -90,49 +96,78 @@ class PostgresBackend(
     }
 
     suspend override fun <E : DomainEvent> loadEventStream(tag: DomainEventTag, afterOffset: Long, batchSize: Int): EventStream {
-        val maxOffset = db.withSession { session ->
-            session.select(maxOffsetForEventsForTagAfterOffsetQueryString, mapOf(
-                    "tag" to tag.value,
-                    "after_offset" to afterOffset
-            )) { it.longOrNull("max_offset") ?: -1 }.firstOrNull() ?: -1
+        val (events, queryMaxOffset, globalMaxOffset) = db.transaction { tx ->
+            val globalMaxOffset = db.withSession { session ->
+                session.select(maxOffsetForAllEventsQueryString) {
+                    it.longOrNull("max_offset") ?: -1
+                }.firstOrNull() ?: -1
+            }
+            val queryMaxOffset = db.withSession { session ->
+                session.select(maxOffsetForEventsForTagAfterOffsetQueryString, mapOf(
+                        "tag" to tag.value,
+                        "after_offset" to afterOffset
+                )) { it.longOrNull("max_offset") ?: -1 }.firstOrNull() ?: -1
+            }
+            val events = db.withSession { session ->
+                session.select(loadEventsForTagAfterOffsetQueryString, mapOf(
+                        "tag" to tag.value,
+                        "after_offset" to afterOffset,
+                        "limit" to batchSize
+                )) { rowToStreamEvent<E>(tag, it) }
+            }
+
+            Triple(events, queryMaxOffset, globalMaxOffset)
         }
-        val events = db.withSession { session ->
-            session.select(loadEventsForTagAfterOffsetQueryString, mapOf(
-                    "tag" to tag.value,
-                    "after_offset" to afterOffset,
-                    "limit" to batchSize
-            )) { rowToStreamEvent<E>(tag, it) }
-        }
+
+        val derivedQueryMaxOffset = if (queryMaxOffset == -1L) events.lastOrNull()?.offset ?: -1L else queryMaxOffset
+        val derivedGlobalMaxOffset = if(globalMaxOffset == -1L ) derivedQueryMaxOffset else maxOf(globalMaxOffset, derivedQueryMaxOffset)
+
         return EventStream(
-                events = events,
-                tag = tag,
-                batchSize = batchSize,
-                startOffset = events.firstOrNull()?.offset,
-                endOffset = events.lastOrNull()?.offset,
-                maxOffset = if(maxOffset == -1L) events.lastOrNull()?.offset ?: -1L else maxOffset)
+            events = events,
+            tag = tag,
+            batchSize = batchSize,
+            startOffset = events.firstOrNull()?.offset,
+            endOffset = events.lastOrNull()?.offset,
+            maxOffset = if (queryMaxOffset == -1L) events.lastOrNull()?.offset ?: -1L else queryMaxOffset,
+            maxGlobalOffset = derivedGlobalMaxOffset
+        )
     }
 
     suspend override fun <E : DomainEvent> loadEventStream(tag: DomainEventTag, afterInstant: Instant, batchSize: Int): EventStream {
-        val maxOffset = db.withSession { session ->
-            session.select(maxOffsetForEventsForTagAfterInstantQueryString, mapOf(
-                    "tag" to tag.value,
-                    "after_instant" to Timestamp.from(afterInstant)
-            )) { it.longOrNull("max_offset") ?: -1 }.firstOrNull() ?: -1
+        val (events, queryMaxOffset, globalMaxOffset) = db.transaction { tx ->
+            val globalMaxOffset = db.withSession { session ->
+                session.select(maxOffsetForAllEventsQueryString) {
+                    it.longOrNull("max_offset") ?: -1
+                }.firstOrNull() ?: -1
+            }
+            val queryMaxOffset = db.withSession { session ->
+                session.select(maxOffsetForEventsForTagAfterInstantQueryString, mapOf(
+                        "tag" to tag.value,
+                        "after_instant" to Timestamp.from(afterInstant)
+                )) { it.longOrNull("max_offset") ?: -1 }.firstOrNull() ?: -1
+            }
+            val events = db.withSession { session ->
+                session.select(loadEventsForTagAfterInstantQueryString, mapOf(
+                        "tag" to tag.value,
+                        "after_instant" to Timestamp.from(afterInstant),
+                        "limit" to batchSize
+                )) { rowToStreamEvent<E>(tag, it) }
+            }
+            Triple(events, queryMaxOffset, globalMaxOffset)
         }
-        val events =  db.withSession { session ->
-            session.select(loadEventsForTagAfterInstantQueryString, mapOf(
-                    "tag" to tag.value,
-                    "after_instant" to Timestamp.from(afterInstant),
-                    "limit" to batchSize
-            )) { rowToStreamEvent<E>(tag, it) }
-        }
+
+        val derivedQueryMaxOffset = if (queryMaxOffset == -1L) events.lastOrNull()?.offset ?: -1L else queryMaxOffset
+        val derivedGlobalMaxOffset = if(globalMaxOffset == -1L ) derivedQueryMaxOffset else maxOf(globalMaxOffset, derivedQueryMaxOffset)
+
         return EventStream(
-                events = events,
-                tag = tag,
-                batchSize = batchSize,
-                startOffset = events.firstOrNull()?.offset,
-                endOffset = events.lastOrNull()?.offset,
-                maxOffset = if(maxOffset == -1L) events.lastOrNull()?.offset ?: -1L else maxOffset)
+            events = events,
+            tag = tag,
+            batchSize = batchSize,
+            startOffset = events.firstOrNull()?.offset,
+            endOffset = events.lastOrNull()?.offset,
+            maxOffset = derivedQueryMaxOffset,
+            maxGlobalOffset = derivedGlobalMaxOffset
+        )
     }
 
     suspend override fun <E : DomainEvent> saveEvents(aggregateType: Aggregate<*, E, *>, aggregateId: AggregateId, causationId: CausationId, rawEvents: List<E>, expectedSequenceNumber: Long, correlationId: CorrelationId?): List<PersistedEvent<E>> {

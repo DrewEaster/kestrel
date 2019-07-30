@@ -58,7 +58,8 @@ data class EventStream(
         val batchSize: Int,
         val startOffset: Long?,
         val endOffset: Long?,
-        val maxOffset: Long)
+        val maxOffset: Long,
+        val maxGlobalOffset: Long)
 
 data class StreamEvent(
         val offset: Long,
