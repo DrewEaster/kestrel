@@ -34,7 +34,7 @@ abstract class StatelessProcessManager(val boundedContexts: BoundedContextEventS
 
     class Subscriber(val eventHandlersBuilder: BoundedContextEventSource.EventHandlersBuilder) {
 
-        inline fun <reified E: DomainEvent> event(noinline handler: (E, EventMetadata) -> Mono<Unit>) {
+        inline fun <reified E: DomainEvent> event(noinline handler: (E, EventMetadata) -> Mono<Void>) {
             eventHandlersBuilder.withHandler(E::class, handler)
         }
     }

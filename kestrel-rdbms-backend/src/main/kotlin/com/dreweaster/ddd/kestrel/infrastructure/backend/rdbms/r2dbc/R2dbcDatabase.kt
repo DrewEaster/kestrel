@@ -25,12 +25,12 @@ class R2dbcDatabase(val r2dbc: R2dbc): Database {
 
 class R2dbcResultColumn(columnName: String, row: Row): ResultColumn {
 
-    override val string: String by lazy { checkNotNull(row.get(columnName, String::class.java)) }
-    override val bool: Boolean by lazy { checkNotNull(row.get(columnName, Boolean::class.java)) }
-    override val int: Int by lazy { checkNotNull(row.get(columnName, Int::class.java)) }
-    override val long: Long by lazy { checkNotNull(row.get(columnName, Long::class.java)) }
-    override val double: Double by lazy { checkNotNull(row.get(columnName, Double::class.java)) }
-    override val float: Float by lazy { checkNotNull(row.get(columnName, Float::class.java)) }
+    override val string: String by lazy { checkNotNull(row.get(columnName, java.lang.String::class.java)).toString() }
+    override val bool: Boolean by lazy { checkNotNull(row.get(columnName, java.lang.Boolean::class.java)).booleanValue() }
+    override val int: Int by lazy { checkNotNull(row.get(columnName, java.lang.Integer::class.java)).toInt() }
+    override val long: Long by lazy { checkNotNull(row.get(columnName, java.lang.Long::class.java)).toLong() }
+    override val double: Double by lazy { checkNotNull(row.get(columnName, java.lang.Double::class.java)).toDouble() }
+    override val float: Float by lazy { checkNotNull(row.get(columnName, java.lang.Float::class.java)).toFloat() }
     override val bigDecimal: BigDecimal by lazy { checkNotNull(row.get(columnName, BigDecimal::class.java)) }
     override val localDate: LocalDate by lazy { checkNotNull(row.get(columnName, LocalDate::class.java)) }
     override val localTime: LocalTime by lazy { checkNotNull(row.get(columnName, LocalTime::class.java)) }
@@ -39,12 +39,12 @@ class R2dbcResultColumn(columnName: String, row: Row): ResultColumn {
     override val instant: Instant by lazy { zonedDateTime.toInstant() }
     override val uuid: UUID by lazy { checkNotNull(row.get(columnName, UUID::class.java)) }
 
-    override val stringOrNull: String? by lazy { row.get(columnName, String::class.java) ?: null }
-    override val intOrNull: Int? by lazy { row.get(columnName, Int::class.java) ?: null }
-    override val longOrNull: Long? by lazy { row.get(columnName, Long::class.java) ?: null }
-    override val doubleOrNull: Double? by lazy { row.get(columnName, Double::class.java) ?: null }
-    override val floatOrNull: Float? by lazy { row.get(columnName, Float::class.java) ?: null }
-    override val boolOrNull: Boolean? by lazy { row.get(columnName, Boolean::class.java) ?: null }
+    override val stringOrNull: String? by lazy { row.get(columnName, java.lang.String::class.java)?.let { it.toString() } }
+    override val intOrNull: Int? by lazy { row.get(columnName, java.lang.Integer::class.java)?.let { it.toInt() } }
+    override val longOrNull: Long? by lazy { row.get(columnName, java.lang.Long::class.java)?.let { it.toLong() } }
+    override val doubleOrNull: Double? by lazy { row.get(columnName, java.lang.Double::class.java)?.let { it.toDouble() } }
+    override val floatOrNull: Float? by lazy { row.get(columnName, java.lang.Float::class.java)?.let { it.toFloat() } }
+    override val boolOrNull: Boolean? by lazy { row.get(columnName, java.lang.Boolean::class.java)?.let { it.booleanValue()  } }
     override val bigDecimalOrNull: BigDecimal? by lazy { row.get(columnName, BigDecimal::class.java) ?: null }
     override val localDateOrNull: LocalDate? by lazy { row.get(columnName, LocalDate::class.java) ?: null }
     override val localTimeOrNull: LocalTime? by lazy { row.get(columnName, LocalTime::class.java) ?: null }
@@ -83,26 +83,30 @@ class R2dbcDatabaseHandle(private val handle: Handle): DatabaseContext {
         return when {
             params.isEmpty() -> handle.select(sql).mapRow { row -> mapper(R2dbcResultRow(row)) }
             else -> {
-                val (translatedSql, translatedParameters) = transformQuery(sql, params)
+                val (translatedSql, translatedParameters) = transformSql(sql, params)
                 val query = handle.createQuery(translatedSql)
-                translatedParameters.forEach{ (column, value) -> when(value) {
+                translatedParameters.forEach { (column, value) -> when(value) {
                     is NullValue -> query.bindNull(column, value.type.java)
                     else -> query.bind(column, value)
                 }}
-                query.add().mapRow { row -> mapper(R2dbcResultRow(row)) }
+                query.add().mapResult { result -> Flux.from(result.map { row, rowMetadata -> mapper(R2dbcResultRow(row)) }).switchIfEmpty(Flux.empty())}
             }
         }
     }
 
-    // FIXME: does not support list parameter expansion
+    // TODO: does not support list parameter expansion
     override fun <T> batchUpdate(sql: String, values: Iterable<T>, body: UpdateParameterBuilder.(T) -> Unit): Flux<Int> {
-        val update = handle.createUpdate(sql)
+        val (transformedSql, parameterIndexMap) = transformSql(sql)
+        val update = handle.createUpdate(transformedSql)
         values.forEach { value ->
             val parameterBuilder = UpdateParameterBuilder()
             body(parameterBuilder, value)
             parameterBuilder.values.forEach { (column, value) -> when(value) {
-                is NullValue -> update.bindNull(column, value.type.java)
-                else -> update.bind(column, paramValueMapper(value))
+                is NullValue -> parameterIndexMap[column]?.forEach { index -> update.bindNull("$$index", value.type.java) }
+                else -> {
+                    val paramValue = paramValueMapper(value)
+                    parameterIndexMap[column]?.forEach { index -> update.bind("$$index", paramValue) }
+                }
             }}
             update.add()
         }
@@ -120,7 +124,7 @@ class R2dbcDatabaseHandle(private val handle: Handle): DatabaseContext {
     }
 
     override fun update(sql: String, params: Map<String, Any>): Flux<Int> {
-        val (translatedSql, translatedParameters) = transformQuery(sql, params)
+        val (translatedSql, translatedParameters) = transformSql(sql, params)
         val update = handle.createUpdate(translatedSql)
         translatedParameters.forEach { (column, value) -> when(value) {
             is NullValue -> update.bindNull(column, value.type.java)
@@ -129,10 +133,22 @@ class R2dbcDatabaseHandle(private val handle: Handle): DatabaseContext {
         return update.execute()
     }
 
-    private val extractParametersFromSqlString = Regex("(:.\\w*)")
+    private val extractParametersFromSqlString = Regex(":(.\\w*)")
 
-    private fun transformQuery(sql: String, params: Map<String, Any>): Pair<String, Map<String, Any>> {
-        val (expandedSql, expandedParams) = expandInClauses(sql, params)
+    private fun transformSql(sql: String): Pair<String, Map<String, List<Int>>> {
+        val normalisedSql = removeLineBreaksAndWhitespace(sql)
+        val sqlParameterNames = extractParametersFromSqlString.findAll(normalisedSql).map { match -> match.groups[1]?.value }.filter { it != null }.map { it!! }.toList()
+        return sqlParameterNames.foldIndexed(normalisedSql to emptyMap()) { index, (transformedSql, indexMap), paramName ->
+            val paramIndexes = (indexMap[paramName] ?: emptyList()) + (index + 1)
+            val transformedParameterName = "$${index + 1}"
+            val replaceRegEx = Regex("(:\\b$paramName\\b)")
+            val newSql = transformedSql.replace(replaceRegEx, escapeReplacement(transformedParameterName))
+            newSql to (indexMap + (paramName to paramIndexes))
+        }
+    }
+
+    private fun transformSql(sql: String, params: Map<String, Any>): Pair<String, Map<String, Any>> {
+        val (expandedSql, expandedParams) = expandInClauses(removeLineBreaksAndWhitespace(sql), params)
         val sqlParameterNames = extractParametersFromSqlString.findAll(expandedSql).map { match -> match.groups[1]?.value }.filter { it != null }.map { it!! }.toList()
         return sqlParameterNames.foldIndexed(expandedSql to emptyMap()) { index, (transformedSql, transformedParams), name: String ->
             val transformedParameterName = "$${index + 1}"
@@ -143,7 +159,7 @@ class R2dbcDatabaseHandle(private val handle: Handle): DatabaseContext {
         }
     }
 
-    private val extractParametersWithinInClauses = Regex("IN\\(:(.\\w*)\\)")
+    private val extractParametersWithinInClauses = Regex("IN\\s*?\\(\\s*?:(.\\w*)\\s*?\\)")
 
     private fun expandInClauses(sql: String, params: Map<String, Any>): Pair<String, Map<String, Any>> {
         val expandableParameterNames = extractParametersWithinInClauses.findAll(sql).map { match -> match.groups[1]?.value }.filter { it != null }.map { it!! }.toList()
@@ -155,6 +171,8 @@ class R2dbcDatabaseHandle(private val handle: Handle): DatabaseContext {
         }
         return expandedSql to params - expandableParameterNames + inClauseParams
     }
+
+    private fun removeLineBreaksAndWhitespace(sql: String) = sql.replace(Regex("[\\r\\n]+"), " ").replace(Regex("[ ]{2,}")," ")
 }
 
 //fun main(args: Array<String>) {
@@ -200,3 +218,16 @@ class R2dbcDatabaseHandle(private val handle: Handle): DatabaseContext {
 //    println(transformedSql)
 //    println(transformedParams)
 //}
+
+fun main(args: Array<String>) {
+     val sql =
+        """
+            SELECT global_offset, event_id, aggregate_id, aggregate_type, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number
+            FROM domain_event
+            WHERE tag IN (:tags) AND global_offset > :after_offset
+            ORDER BY global_offset
+            LIMIT :limit
+        """
+
+    println(sql.replace(Regex("[\\r\\n]+"), " ").replace(Regex("[ ]{2,}")," "))
+}

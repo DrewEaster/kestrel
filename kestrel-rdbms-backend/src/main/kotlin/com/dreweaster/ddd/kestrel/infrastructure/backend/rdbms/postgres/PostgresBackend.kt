@@ -4,7 +4,7 @@ import com.dreweaster.ddd.kestrel.application.*
 import com.dreweaster.ddd.kestrel.domain.Aggregate
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
-import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.AtomicDatabaseProjection
+import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.ConsistentDatabaseProjection
 import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.Database
 import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.DatabaseContext
 import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.ResultRow
@@ -16,69 +16,69 @@ import kotlin.reflect.KClass
 class PostgresBackend(
         private val db: Database,
         private val mapper: EventPayloadMapper,
-        private val projections: List<AtomicDatabaseProjection>) : Backend {
+        private val projections: List<ConsistentDatabaseProjection>) : Backend {
 
     private val loadEventsForAggregateInstanceQueryString =
         """
             SELECT global_offset, event_id, aggregate_id, aggregate_type, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number
             FROM domain_event
-            WHERE aggregate_id = $1 AND aggregate_type = $2 AND sequence_number > $3
+            WHERE aggregate_id = :aggregate_id AND aggregate_type = :aggregate_type AND sequence_number > :sequence_number
             ORDER BY sequence_number
         """
 
     private val loadEventsForTagsAfterInstantQueryString =
         """
-            SELECT global_offset, event_id, aggregate_id, aggregate_type, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number
+            SELECT global_offset, event_id, aggregate_id, aggregate_type, tag, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number
             FROM domain_event
-            WHERE tag IN ($1) AND event_timestamp > $2
+            WHERE tag IN (:tags) AND event_timestamp > :after_timestamp
             ORDER BY global_offset
-            LIMIT $3
+            LIMIT :limit
         """
 
     private val maxOffsetForEventsForTagsAfterInstantQueryString =
         """
             SELECT MAX(global_offset) as max_offset
             FROM domain_event
-            WHERE tag IN ($1) AND event_timestamp > $2
+            WHERE tag IN (:tags) AND event_timestamp > :after_timestamp
         """
 
     private val loadEventsForTagsAfterOffsetQueryString =
         """
-            SELECT global_offset, event_id, aggregate_id, aggregate_type, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number
+            SELECT global_offset, event_id, aggregate_id, aggregate_type, tag, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number
             FROM domain_event
-            WHERE tag IN ($1) AND global_offset > $2
+            WHERE tag IN (:tags) AND global_offset > :after_offset
             ORDER BY global_offset
-            LIMIT $3
+            LIMIT :limit
         """
 
     private val maxOffsetForEventsForTagsAfterOffsetQueryString =
         """
             SELECT MAX(global_offset) as max_offset
             FROM domain_event
-            WHERE tag IN ($1) AND global_offset > $2
+            WHERE tag IN (:tags) AND global_offset > :after_offset
         """
 
     private val saveEventsQueryString =
         """
             INSERT INTO domain_event(event_id, aggregate_id, aggregate_type, tag, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number)
-            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES(:event_id, :aggregate_id, :aggregate_type, :tag, :causation_id, :correlation_id, :event_type, :event_version, :event_payload, :event_timestamp, :sequence_number)
         """
 
     private val saveAggregateQueryString =
         """
             INSERT INTO aggregate_root (aggregate_id, aggregate_type, aggregate_version)
-            VALUES ($1, $2, $3)
+            VALUES (:aggregate_id, :aggregate_type, :aggregate_version)
             ON CONFLICT ON CONSTRAINT aggregate_root_pkey
-            DO UPDATE SET aggregate_version = $4 WHERE aggregate_root.aggregate_version = $5
+            DO UPDATE SET aggregate_version = :aggregate_version WHERE aggregate_root.aggregate_version = :expected_aggregate_version
         """
 
     override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId) = loadEvents(aggregateType, aggregateId, -1)
 
     override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId, afterSequenceNumber: Long) = db.inTransaction { ctx ->
         ctx.select(loadEventsForAggregateInstanceQueryString, rowToPersistedEvent(aggregateType)) {
-            this["$1"] = aggregateId.value
-            this["$2"] = aggregateType.blueprint.name
-            this["$3"] = afterSequenceNumber
+            this["aggregate_id"] = aggregateId.value
+            this["aggregate_type"] = aggregateType.blueprint.name
+            this["sequence_number"] = afterSequenceNumber
         }
     }
 
@@ -122,9 +122,10 @@ class PostgresBackend(
             }
 
             val saveAggregate = ctx.update(saveAggregateQueryString) {
-                this["$1"] = aggregateId.value
-                this["$2"] = aggregateType.blueprint.name
-                this["$3"] = saveableEvents.second.last().sequenceNumber
+                this["aggregate_id"] = aggregateId.value
+                this["aggregate_type"] = aggregateType.blueprint.name
+                this["aggregate_version"] = saveableEvents.second.last().sequenceNumber
+                this["expected_aggregate_version"] = expectedSequenceNumber
             }
 
             val persistedEvents = Flux.fromIterable(saveableEvents.second.map { it.toPersistedEvent() })
@@ -145,13 +146,13 @@ class PostgresBackend(
             batchSize: Int): Mono<EventStream> = db.inTransaction { ctx ->
 
         ctx.select(maxOffsetForEventsForTagsAfterOffsetQueryString, { it["max_offset"].longOrNull ?: -1 }) {
-            this["$1"] = tags.map { tag -> tag.value }
-            this["$2"] = afterOffset
+            this["tags"] = tags.map { tag -> tag.value }
+            this["after_offset"] = afterOffset
         }.flatMap { maxOffset ->
             ctx.select(loadEventsForTagsAfterOffsetQueryString, rowToStreamEvent<E>()) {
-                this["$1"] = tags.map { tag -> tag.value }
-                this["$2"] = afterOffset
-                this["$3"] = batchSize
+                this["tags"] = tags.map { tag -> tag.value }
+                this["after_offset"] = afterOffset
+                this["limit"] = batchSize
             }.collectList().map { events ->
                 EventStream(
                     events = events,
@@ -170,13 +171,13 @@ class PostgresBackend(
             batchSize: Int): Mono<EventStream> = db.inTransaction { ctx ->
 
         ctx.select(maxOffsetForEventsForTagsAfterInstantQueryString, { it["max_offset"].longOrNull ?: -1 }) {
-            this["$1"] = tags.map { tag -> tag.value }
-            this["$2"] = afterInstant
+            this["tags"] = tags.map { tag -> tag.value }
+            this["after_timestamp"] = afterInstant
         }.flatMap { maxOffset ->
             ctx.select(loadEventsForTagsAfterInstantQueryString, rowToStreamEvent<E>()) {
-                this["$1"] = tags.map { tag -> tag.value }
-                this["$2"] = afterInstant
-                this["$3"] = batchSize
+                this["tags"] = tags.map { tag -> tag.value }
+                this["after_timestamp"] = afterInstant
+                this["limit"] = batchSize
             }.collectList().map { events ->
                 EventStream(
                     events = events,
@@ -230,7 +231,7 @@ class PostgresBackend(
             causationId = CausationId(row["causation_id"].string),
             correlationId = row["correlation_id"].stringOrNull?.let { CorrelationId(it) },
             eventType = rawEvent::class.qualifiedName!!,
-            eventTag = DomainEventTag(row["event_tag"].string),
+            eventTag = DomainEventTag(row["tag"].string),
             payloadContentType = serialisedPayload.contentType,
             serialisedPayload = serialisedPayload.payload,
             timestamp = row["event_timestamp"].instant,
@@ -265,10 +266,10 @@ class PostgresBackend(
             )
     }
 
-    private val checkForConcurrentModification: (Int) -> Mono<Unit> = { rowsAffected ->
+    private val checkForConcurrentModification: (Int) -> Mono<Void> = { rowsAffected ->
         when (rowsAffected) {
             0 -> Mono.error(OptimisticConcurrencyException)
-            else -> Mono.empty<Unit>()
+            else -> Mono.empty<Void>()
         }
     }
 

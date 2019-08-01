@@ -28,17 +28,18 @@ class ClusterAwareScheduler(private val clusterManager: Cluster): Scheduler {
             .subscribeOn(jobScheduler)
             .flatMap { ClusterSingletonJobWrapper(job).execute() }
             .timeout(repeatSchedule.multipliedBy(10)) // TODO: needs to be configurable
+            .then(fromCallable { LOG.info("Job execution succeeded: '${job.name}'")})
             .onErrorResume { fromCallable { LOG.error("Job execution failed: '${job.name}'", it) } }
             .repeat()
             .subscribe(
-                { _ -> LOG.info("Job execution complete: '${job.name}'") },
+                { },
                 { error -> LOG.error("Job scheduling unexpectedly ended: '${job.name}'", error) },
                 { LOG.error("Job scheduling unexpectedly ended: '${job.name}'") }
             )
         )
     }
 
-    override fun shutdown(): Mono<Unit> {
+    override fun shutdown(): Mono<Void> {
         // TODO: IMPLEMENT PROPERLY
         jobs.forEach { it.dispose() }
         return empty()
@@ -47,7 +48,7 @@ class ClusterAwareScheduler(private val clusterManager: Cluster): Scheduler {
     inner class ClusterSingletonJobWrapper(private val wrappedJob: Job) : Job {
         override val name = wrappedJob.name
 
-        override fun execute(): Mono<Unit> {
+        override fun execute(): Mono<Void> {
             return clusterManager.iAmTheLeader()
                 .flatMap { iAmTheLeader ->
                     when {
@@ -60,7 +61,7 @@ class ClusterAwareScheduler(private val clusterManager: Cluster): Scheduler {
                             empty<Unit>()
                         }
                     }
-                }.single()
+                }.then()
         }
     }
 }

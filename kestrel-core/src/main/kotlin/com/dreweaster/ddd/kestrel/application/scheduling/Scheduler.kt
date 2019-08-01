@@ -7,7 +7,7 @@ interface Job {
 
     val name: String
 
-    fun execute(): Mono<Unit>
+    fun execute(): Mono<Void>
 }
 
 interface Scheduler {
@@ -16,5 +16,5 @@ interface Scheduler {
 
     // TODO: Terminate all scheduled jobs so that JVM can shutdown as gracefully as possible
     // Should help for hot restart situations in development
-    fun shutdown(): Mono<Unit>
+    fun shutdown(): Mono<Void>
 }

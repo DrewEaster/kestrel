@@ -9,7 +9,7 @@ data class ProjectionStatement(val sql: String, val parameters: Map<String, Any>
     override fun iterator(): Iterator<ProjectionStatement> = listOf(this).iterator()
 }
 
-abstract class AtomicDatabaseProjection {
+abstract class ConsistentDatabaseProjection {
 
     class EventHandlers {
 
@@ -33,7 +33,7 @@ abstract class AtomicDatabaseProjection {
 // TODO: Restrict events to only those applicable to the aggregate type
 class Projection<E: DomainEvent, A: Aggregate<*, E, *>>(val aggregateType: KClass<A>) {
 
-    val eventHandlers = AtomicDatabaseProjection.EventHandlers()
+    val eventHandlers = ConsistentDatabaseProjection.EventHandlers()
 
     inline fun <reified Evt: E> event(noinline handler: (PersistedEvent<Evt>) -> Iterable<ProjectionStatement>) {
         eventHandlers.withHandler(Evt::class, handler as (PersistedEvent<DomainEvent>) -> Iterable<ProjectionStatement>)

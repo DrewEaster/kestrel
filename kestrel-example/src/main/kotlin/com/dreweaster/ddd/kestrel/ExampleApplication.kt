@@ -1,12 +1,7 @@
 package com.dreweaster.ddd.kestrel
 
-import com.dreweaster.ddd.kestrel.application.AggregateId
-import com.dreweaster.ddd.kestrel.application.EventSourcedDomainModel
-import com.dreweaster.ddd.kestrel.application.IdGenerator
-import com.dreweaster.ddd.kestrel.application.TwentyFourHourWindowCommandDeduplication
+import com.dreweaster.ddd.kestrel.application.*
 import com.dreweaster.ddd.kestrel.application.consumer.HelloNewUser
-import com.dreweaster.ddd.kestrel.application.BoundedContextEventSources
-import com.dreweaster.ddd.kestrel.application.BoundedContextName
 import com.dreweaster.ddd.kestrel.application.readmodel.user.UserDTO
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.RegisterUser
@@ -16,7 +11,7 @@ import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.r2dbc.R2dbcDataba
 import com.dreweaster.ddd.kestrel.infrastructure.cluster.LocalCluster
 import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonEventMappingConfigurer
 import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonEventPayloadMapper
-import com.dreweaster.ddd.kestrel.infrastructure.driven.readmodel.user.AtomicUserProjection
+import com.dreweaster.ddd.kestrel.infrastructure.driven.readmodel.user.ConsistentUserProjection
 import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.*
 import com.dreweaster.ddd.kestrel.infrastructure.driving.eventstream.UserContextHttpEventStreamSourceFactory
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.BoundedContextHttpEventSourceConfiguration
@@ -80,7 +75,7 @@ object Application {
         ) as List<JsonEventMappingConfigurer<DomainEvent>>)
 
         val config = ConfigFactory.load()
-        val userReadModel = AtomicUserProjection(database)
+        val userReadModel = ConsistentUserProjection(database)
         val backend = PostgresBackend(database, payloadMapper, listOf(userReadModel))
         val domainModel = EventSourcedDomainModel(backend, TwentyFourHourWindowCommandDeduplication)
         val jobManager = ClusterAwareScheduler(LocalCluster)
@@ -100,6 +95,8 @@ object Application {
         HelloNewUser(streamSources)
 
         val server = HttpServer.create()
+            .host("0.0.0.0")
+            .port(8080)
             .route { routes ->
                 routes
                     .get("/events") { request, response ->
@@ -114,7 +111,10 @@ object Application {
                             request.receiveJsonObject(RegisterUserRequest.mapper).flatMap { registerUserRequest ->
                                 val user = domainModel.aggregateRootOf(User, registerUserRequest.id)
                                 user.handleCommand(RegisterUser(registerUserRequest.username, registerUserRequest.password))
-                            }.flatMap { result -> Mono.just(result.aggregateId) }
+                            }.flatMap { result -> when(result) {
+                                is UnexpectedExceptionResult -> Mono.error(result.ex)
+                                else -> Mono.just(result.aggregateId)
+                            }}
                         ) { id -> jsonObject("id" to id.value)} // TODO: Error handling
                     }
                     .get("/users/{id}") { request, response ->

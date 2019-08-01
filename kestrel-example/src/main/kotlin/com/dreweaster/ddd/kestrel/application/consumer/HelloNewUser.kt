@@ -6,7 +6,7 @@ import com.dreweaster.ddd.kestrel.domain.aggregates.user.UserRegistered
 import com.dreweaster.ddd.kestrel.application.BoundedContexts.UserContext
 import com.dreweaster.ddd.kestrel.application.StatelessProcessManager
 import org.slf4j.LoggerFactory
-import reactor.core.publisher.Mono.*
+import reactor.core.publisher.Mono.fromRunnable
 
 class HelloNewUser constructor(boundedContexts: BoundedContextEventSources): StatelessProcessManager(boundedContexts) {
 
@@ -18,7 +18,8 @@ class HelloNewUser constructor(boundedContexts: BoundedContextEventSources): Sta
             subscribe(context = UserContext, edenPolicy = FROM_NOW) {
 
                 event<UserRegistered> { event, _ ->
-                    fromRunnable<Unit> { LOG.info("Hello ${event.username}!") }
+                    //Mono.error(RuntimeException("Bollocks"))
+                    fromRunnable { LOG.info("Hello ${event.username}!") }
                 }
             }
         }.start()

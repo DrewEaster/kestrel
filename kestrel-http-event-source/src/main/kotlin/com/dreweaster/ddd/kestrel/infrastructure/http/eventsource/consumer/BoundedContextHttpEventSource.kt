@@ -6,6 +6,8 @@ import com.dreweaster.ddd.kestrel.application.scheduling.Scheduler
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.HttpJsonEventQuery
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.EventStreamOffset
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.LastProcessedOffset
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.OffsetTracker
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.reporting.BoundedContextHttpEventSourceReporter
 import com.github.salomonbrys.kotson.long
@@ -74,7 +76,7 @@ class BoundedContextHttpEventSource(
         return this
     }
 
-    override fun subscribe(handlers: Map<KClass<out DomainEvent>, ((DomainEvent, EventMetadata) -> Mono<Unit>)>, subscriberConfiguration: BoundedContextSubscriberConfiguration) {
+    override fun subscribe(handlers: Map<KClass<out DomainEvent>, ((DomainEvent, EventMetadata) -> Mono<Void>)>, subscriberConfiguration: BoundedContextSubscriberConfiguration) {
         val allTags = handlers.keys.map { targetClassToEventTag[it] ?: throw IllegalArgumentException("Unsupported event type: ${it.qualifiedName}") }.toSet()
 
         val job = ConsumeHttpEventStreamJob(
@@ -90,7 +92,7 @@ class BoundedContextHttpEventSource(
     }
 
     inner class ConsumeHttpEventStreamJob(
-            private val eventHandlers: Map<KClass<out DomainEvent>, ((DomainEvent, EventMetadata) -> Mono<Unit>)>,
+            private val eventHandlers: Map<KClass<out DomainEvent>, ((DomainEvent, EventMetadata) -> Mono<Void>)>,
             tags : Set<DomainEventTag>,
             subscriberConfiguration: BoundedContextSubscriberConfiguration) : Job {
 
@@ -102,12 +104,12 @@ class BoundedContextHttpEventSource(
                 tags = tags,
                 batchSize = configuration.batchSizeFor(subscriberConfiguration.name))
 
-        override fun execute(): Mono<Unit> {
+        override fun execute(): Mono<Void> {
             return fetchOffset()
                 .flatMapMany(fetchEvents)
                 .flatMap(handleEvent)
                 .flatMap(saveOffset)
-                .then(Mono.just(Unit))
+                .then()
         }
 
         private val handleEvent: (JsonObject) -> Mono<Long> = { eventJson ->
@@ -118,15 +120,21 @@ class BoundedContextHttpEventSource(
                 val event = mapper(eventJson["payload"].asJsonObject)
                 val eventHandler = eventHandlers[event::class]
                 eventHandler?.invoke(event, extractEventMetadata(eventJson))
-            } ?: Mono.empty()).map { eventOffset }
+            } ?: Mono.empty()).then(Mono.just(eventOffset))
         }
 
-        private val saveOffset: (Long) -> Mono<Unit> = { offset -> offsetManager.saveOffset(name, offset) }
+        private val saveOffset: (Long) -> Mono<Void> = { offset ->
+            offsetManager.saveOffset(name, offset)
+        }
 
-        private fun fetchOffset(): Mono<Long?> = offsetManager.getOffset(name)
+        private fun fetchOffset(): Mono<out EventStreamOffset> = offsetManager.getOffset(name)
 
-        private val fetchEvents: (Long?) -> Flux<JsonObject> = { lastProcessedOffset ->
-            requestFactory.createRequest(lastProcessedOffset)(httpClient)
+        private val fetchEvents: (EventStreamOffset) -> Flux<JsonObject> = { eventStreamOffset ->
+            val offset = when(eventStreamOffset) {
+                is LastProcessedOffset -> eventStreamOffset.value
+                else -> null
+            }
+            requestFactory.createRequest(offset)(httpClient)
                 .flatMapMany { jsonBody -> Flux.fromIterable(jsonBody["events"].asJsonArray.toList().map { it.asJsonObject }) }
         }
 
@@ -189,6 +197,7 @@ object BeginningOfTime : HttpEventStreamSubscriptionEdenPolicy() {
                         .aggregate()
                         .asString()
                         .map { jsonParser.parse(it).asJsonObject }
+                        .switchIfEmpty(Mono.error(RuntimeException("Error fetching events")))
                 }
             }
         }
@@ -225,6 +234,7 @@ object FromNow : HttpEventStreamSubscriptionEdenPolicy() {
                             .aggregate()
                             .asString()
                             .map { jsonParser.parse(it).asJsonObject }
+                            .switchIfEmpty(Mono.error(RuntimeException("Error fetching events")))
                     }
                 } else {
                     val query = HttpJsonEventQuery(
@@ -246,6 +256,7 @@ object FromNow : HttpEventStreamSubscriptionEdenPolicy() {
                             .aggregate()
                             .asString()
                             .map { jsonParser.parse(it).asJsonObject }
+                            .switchIfEmpty(Mono.error(RuntimeException("Error fetching events")))
                     }
                 }
             }

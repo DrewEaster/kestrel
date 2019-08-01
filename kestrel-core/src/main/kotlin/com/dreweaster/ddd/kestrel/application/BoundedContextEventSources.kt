@@ -17,17 +17,17 @@ interface BoundedContextEventSource {
 
     class EventHandlersBuilder {
 
-        var handlers: Map<KClass<out DomainEvent>, (DomainEvent, EventMetadata) -> Mono<Unit>> = emptyMap()
+        var handlers: Map<KClass<out DomainEvent>, (DomainEvent, EventMetadata) -> Mono<Void>> = emptyMap()
 
-        fun <E: DomainEvent> withHandler(type: KClass<E>, handler: (E, EventMetadata) -> Mono<Unit>): EventHandlersBuilder {
-            handlers += type to handler as (DomainEvent, EventMetadata) -> Mono<Unit>
+        fun <E: DomainEvent> withHandler(type: KClass<E>, handler: (E, EventMetadata) -> Mono<Void>): EventHandlersBuilder {
+            handlers += type to handler as (DomainEvent, EventMetadata) -> Mono<Void>
             return this
         }
 
         fun build() = handlers
     }
 
-    fun subscribe(handlers: Map<KClass<out DomainEvent>, (DomainEvent, EventMetadata) -> Mono<Unit>>, subscriberConfiguration: BoundedContextSubscriberConfiguration)
+    fun subscribe(handlers: Map<KClass<out DomainEvent>, (DomainEvent, EventMetadata) -> Mono<Void>>, subscriberConfiguration: BoundedContextSubscriberConfiguration)
 }
 
 data class BoundedContextSubscriberConfiguration(val name: String, val edenPolicy: BoundedContextSubscriptionEdenPolicy)
