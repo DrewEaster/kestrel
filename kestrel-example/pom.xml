@@ -90,13 +90,19 @@
         </dependency>
         <dependency>
             <groupId>io.r2dbc</groupId>
+            <artifactId>r2dbc-spi</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.r2dbc</groupId>
             <artifactId>r2dbc-postgresql</artifactId>
-            <version>1.0.0.M6</version>
         </dependency>
         <dependency>
             <groupId>io.r2dbc</groupId>
             <artifactId>r2dbc-client</artifactId>
-            <version>1.0.0.M6</version>
+        </dependency>
+        <dependency>
+            <groupId>io.r2dbc</groupId>
+            <artifactId>r2dbc-pool</artifactId>
         </dependency>
         <dependency>
             <groupId>com.typesafe</groupId>

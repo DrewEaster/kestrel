@@ -30,6 +30,7 @@ import io.netty.handler.codec.http.HttpHeaderNames.*
 import io.netty.handler.codec.http.HttpResponseStatus.*
 import io.netty.handler.codec.http.QueryStringDecoder
 import io.r2dbc.client.R2dbc
+import io.r2dbc.pool.ConnectionPool
 import io.r2dbc.postgresql.PostgresqlConnectionConfiguration
 import io.r2dbc.postgresql.PostgresqlConnectionFactory
 import org.flywaydb.core.Flyway
@@ -41,6 +42,9 @@ import reactor.netty.http.client.HttpClient
 import reactor.netty.http.server.HttpServerRequest
 import reactor.netty.http.server.HttpServerResponse
 import java.time.Duration
+import io.r2dbc.pool.ConnectionPoolConfiguration
+
+
 
 fun main(args: Array<String>) {
     Application.run()
@@ -64,7 +68,15 @@ object Application {
             .password("password")
             .build()
 
-        val database = R2dbcDatabase(R2dbc(PostgresqlConnectionFactory(configuration)))
+        val poolConfiguration = ConnectionPoolConfiguration.builder(PostgresqlConnectionFactory(configuration))
+            .validationQuery("SELECT 1")
+            .maxIdleTime(Duration.ofMillis(1000))
+            .maxSize(20)
+            .build()
+
+        val pool = ConnectionPool(poolConfiguration)
+
+        val database = R2dbcDatabase(R2dbc(pool))
 
         val payloadMapper = JsonEventPayloadMapper(Gson(), listOf(
                 UserRegisteredMapper,

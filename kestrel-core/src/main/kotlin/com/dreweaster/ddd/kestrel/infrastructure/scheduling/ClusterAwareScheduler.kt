@@ -20,8 +20,11 @@ class ClusterAwareScheduler(private val clusterManager: Cluster): Scheduler {
 
     private val jobs = mutableListOf<Disposable>()
 
+    private val jobSchedulers = mutableListOf<reactor.core.scheduler.Scheduler>()
+
     override fun scheduleManyTimes(repeatSchedule: Duration, job: Job) {
-        val jobScheduler = Schedulers.fromExecutor(Executors.newSingleThreadExecutor()) // TODO: must dispose of this
+        val jobScheduler = Schedulers.fromExecutor(Executors.newSingleThreadExecutor())
+        jobSchedulers.add(jobScheduler)
 
         jobs.add(delay(repeatSchedule)
             .publishOn(jobScheduler)
@@ -42,6 +45,7 @@ class ClusterAwareScheduler(private val clusterManager: Cluster): Scheduler {
     override fun shutdown(): Mono<Void> {
         // TODO: IMPLEMENT PROPERLY
         jobs.forEach { it.dispose() }
+        jobSchedulers.forEach { it.dispose() }
         return empty()
     }
 

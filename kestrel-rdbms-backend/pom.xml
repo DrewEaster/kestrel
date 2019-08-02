@@ -54,12 +54,10 @@
         <dependency>
             <groupId>io.r2dbc</groupId>
             <artifactId>r2dbc-postgresql</artifactId>
-            <version>1.0.0.M6</version>
         </dependency>
         <dependency>
             <groupId>io.r2dbc</groupId>
             <artifactId>r2dbc-client</artifactId>
-            <version>1.0.0.M6</version>
         </dependency>
         <dependency>
             <groupId>io.arrow-kt</groupId>
