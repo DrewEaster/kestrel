@@ -18,6 +18,7 @@ import com.google.gson.JsonParser
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
+import reactor.core.publisher.switchIfEmpty
 import reactor.netty.http.client.HttpClient
 import java.time.Duration
 import java.time.Instant
@@ -30,6 +31,29 @@ data class HttpJsonEventMapper<T: DomainEvent>(
     val sourceEventTag: DomainEventTag,
     val sourceEventType: FullyQualifiedClassName,
     val map: (JsonObject) -> T)
+
+data class FeedEvent(val json: JsonObject) {
+    val payload: JsonObject by lazy { json["payload"].asJsonObject }
+    val type: String by lazy { json["type"].string }
+    val offset: Long by lazy { json["offset"].long }
+    val metadata: EventMetadata by lazy {
+        EventMetadata(
+            EventId(json["id"].string),
+            AggregateId(json["aggregate_id"].string),
+            CausationId(json["causation_id"].string),
+            json["correlation_id"].nullString?.let { CorrelationId(it) },
+            json["sequence_number"].long
+        )
+    }
+}
+
+data class EventFeedPage(val json: JsonObject, val pageSize: Int) {
+    val events: List<FeedEvent> by lazy { json["events"].asJsonArray.toList().map { FeedEvent(it.asJsonObject) }}
+    val queryMaxOffset: Long by lazy { json["query_max_offset"].long }
+    val globalMaxOffset: Long by lazy { json["global_max_offset"].long }
+    val pageStartOffset: Long by lazy { json["page_start_offset"].long }
+    val pageEndOffset: Long by lazy { json["page_end_offset"].long }
+}
 
 interface BoundedContextHttpEventSourceConfiguration {
 
@@ -44,6 +68,8 @@ interface BoundedContextHttpEventSourceConfiguration {
     fun batchSizeFor(subscriptionName: String): Int
 
     fun repeatScheduleFor(subscriptionName: String): Duration
+
+    fun timeoutFor(subscriptionName: String): Duration
 
     fun enabled(subscriptionName: String): Boolean
 }
@@ -85,7 +111,10 @@ class BoundedContextHttpEventSource(
                 eventHandlers = handlers)
 
         if(configuration.enabled(subscriberConfiguration.name)) {
-            jobManager.scheduleManyTimes(configuration.repeatScheduleFor(subscriberConfiguration.name), job)
+            jobManager.scheduleManyTimes(
+                    repeatSchedule = configuration.repeatScheduleFor(subscriberConfiguration.name),
+                    timeout = configuration.timeoutFor(subscriberConfiguration.name),
+                    job = job)
         } else {
             LOG.warn("The event stream subscriber '${subscriberConfiguration.name}' is disabled")
         }
@@ -94,7 +123,7 @@ class BoundedContextHttpEventSource(
     inner class ConsumeHttpEventStreamJob(
             private val eventHandlers: Map<KClass<out DomainEvent>, ((DomainEvent, EventMetadata) -> Mono<Void>)>,
             tags : Set<DomainEventTag>,
-            subscriberConfiguration: BoundedContextSubscriberConfiguration) : Job {
+            private val subscriberConfiguration: BoundedContextSubscriberConfiguration) : Job {
 
         override val name = "${this@BoundedContextHttpEventSource.name.name}_${subscriberConfiguration.name}"
 
@@ -104,23 +133,23 @@ class BoundedContextHttpEventSource(
                 tags = tags,
                 batchSize = configuration.batchSizeFor(subscriberConfiguration.name))
 
-        override fun execute(): Mono<Void> {
+        override fun execute(): Mono<Boolean> {
             return fetchOffset()
-                .flatMapMany(fetchEvents)
-                .flatMap(handleEvent)
-                .flatMap(saveOffset)
-                .then()
+                .flatMap(fetchEventFeed)
+                .flatMap { eventFeedPage ->
+                    // TODO: Inefficient in that it updates offset after handling each event rather than in batches. Does reduce volume of redeliveries, though
+                    processEvents(eventFeedPage)
+                        .flatMap(saveOffset)
+                        .then(Mono.just(hasBacklog(eventFeedPage)))
+                }
         }
 
-        private val handleEvent: (JsonObject) -> Mono<Long> = { eventJson ->
-            val eventOffset = eventJson["offset"].long
-            val eventType = eventJson["type"].string
-
-            (sourceEventTypeToMapper[eventType]?.let { mapper ->
-                val event = mapper(eventJson["payload"].asJsonObject)
+        private val handleEvent: (FeedEvent) -> Mono<Long> = { feedEvent ->
+            (sourceEventTypeToMapper[feedEvent.type]?.let { mapper ->
+                val event = mapper(feedEvent.payload)
                 val eventHandler = eventHandlers[event::class]
-                eventHandler?.invoke(event, extractEventMetadata(eventJson))
-            } ?: Mono.empty()).then(Mono.just(eventOffset))
+                eventHandler?.invoke(event, feedEvent.metadata)
+            } ?: Mono.empty()).then(Mono.just(feedEvent.offset))
         }
 
         private val saveOffset: (Long) -> Mono<Void> = { offset ->
@@ -129,23 +158,29 @@ class BoundedContextHttpEventSource(
 
         private fun fetchOffset(): Mono<out EventStreamOffset> = offsetManager.getOffset(name)
 
-        private val fetchEvents: (EventStreamOffset) -> Flux<JsonObject> = { eventStreamOffset ->
+        private val fetchEventFeed: (EventStreamOffset) -> Mono<EventFeedPage> = { eventStreamOffset ->
             val offset = when(eventStreamOffset) {
                 is LastProcessedOffset -> eventStreamOffset.value
                 else -> null
             }
-            requestFactory.createRequest(offset)(httpClient)
-                .flatMapMany { jsonBody -> Flux.fromIterable(jsonBody["events"].asJsonArray.toList().map { it.asJsonObject }) }
+
+            requestFactory.createRequest(offset)(httpClient).map {
+                EventFeedPage(it, configuration.batchSizeFor(subscriberConfiguration.name))
+            }
         }
 
-        private fun extractEventMetadata(eventJson: JsonObject) =
-            EventMetadata(
-                EventId(eventJson["id"].string),
-                AggregateId(eventJson["aggregate_id"].string),
-                CausationId(eventJson["causation_id"].string),
-                eventJson["correlation_id"].nullString?.let { CorrelationId(it) },
-                eventJson["sequence_number"].long
-            )
+        private fun processEvents(page: EventFeedPage): Flux<Long> {
+            return if(page.events.isEmpty()) {
+                val derivedOffset = maxOf(page.queryMaxOffset, page.globalMaxOffset)
+                if(configuration.batchSizeFor(subscriberConfiguration.name) > 0 && derivedOffset > -1L) Flux.just(derivedOffset) else Flux.empty()
+            } else {
+                Flux.fromIterable(page.events).flatMap(handleEvent)
+            }
+        }
+
+        private fun hasBacklog(page: EventFeedPage): Boolean {
+            return page.pageSize > 0 && page.events.isNotEmpty() && (page.pageEndOffset < page.queryMaxOffset)
+        }
     }
 }
 

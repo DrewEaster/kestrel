@@ -7,12 +7,16 @@ interface Job {
 
     val name: String
 
-    fun execute(): Mono<Void>
+    /**
+     * @return whether the job should be immediately rescheduled on completion or whether it should wait delay for
+     *         its default scheduling cycle before its next execution
+     */
+    fun execute(): Mono<Boolean>
 }
 
 interface Scheduler {
 
-    fun scheduleManyTimes(repeatSchedule: Duration, job: Job)
+    fun scheduleManyTimes(repeatSchedule: Duration, timeout: Duration, job: Job)
 
     // TODO: Terminate all scheduled jobs so that JVM can shutdown as gracefully as possible
     // Should help for hot restart situations in development

@@ -63,11 +63,11 @@ open class InMemoryBackend : Backend {
         return Flux.fromIterable(persistedEvents)
     }
 
-    override fun <E : DomainEvent> loadEventStream(tags: Set<DomainEventTag>, afterOffset: Long, batchSize: Int): Mono<EventStream> {
+    override fun <E : DomainEvent> fetchEventFeed(tags: Set<DomainEventTag>, afterOffset: Long, batchSize: Int): Mono<EventFeed> {
         return Mono.error(UnsupportedOperationException())
     }
 
-    override fun <E : DomainEvent> loadEventStream(tags: Set<DomainEventTag>, afterInstant: Instant, batchSize: Int): Mono<EventStream> {
+    override fun <E : DomainEvent> fetchEventFeed(tags: Set<DomainEventTag>, afterInstant: Instant, batchSize: Int): Mono<EventFeed> {
         return Mono.error(UnsupportedOperationException())
     }
 

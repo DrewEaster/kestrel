@@ -2,6 +2,7 @@ package com.dreweaster.ddd.kestrel
 
 import com.dreweaster.ddd.kestrel.application.*
 import com.dreweaster.ddd.kestrel.application.consumer.HelloNewUser
+import com.dreweaster.ddd.kestrel.application.consumer.WarnUserLocked
 import com.dreweaster.ddd.kestrel.application.readmodel.user.UserDTO
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.RegisterUser
@@ -16,7 +17,7 @@ import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.*
 import com.dreweaster.ddd.kestrel.infrastructure.driving.eventstream.UserContextHttpEventStreamSourceFactory
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.BoundedContextHttpEventSourceConfiguration
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.PostgresOffsetTracker
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.producer.BoundedContextHttpJsonEventStreamProducer
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.producer.BoundedContextHttpJsonEventProducer
 import com.dreweaster.ddd.kestrel.infrastructure.scheduling.ClusterAwareScheduler
 import com.github.salomonbrys.kotson.jsonArray
 import com.github.salomonbrys.kotson.jsonObject
@@ -103,8 +104,9 @@ object Application {
             )
         })
 
-        // Start event processManager
+        // Start process managers
         HelloNewUser(streamSources)
+        WarnUserLocked(streamSources)
 
         val server = HttpServer.create()
             .host("0.0.0.0")
@@ -112,7 +114,7 @@ object Application {
             .route { routes ->
                 routes
                     .get("/events") { request, response ->
-                        val producer = BoundedContextHttpJsonEventStreamProducer(backend)
+                        val producer = BoundedContextHttpJsonEventProducer(backend)
                         response.sendObjectAsJson(producer.produceFrom(request.queryParams()).map { it.nullable() }) { it }
                     }
                     .get("/users") { _, response ->
@@ -161,6 +163,8 @@ object Application {
             override fun batchSizeFor(subscriptionName: String) = config.getInt("contexts.${context.name}.subscriptions.$subscriptionName.batch_size")
 
             override fun repeatScheduleFor(subscriptionName: String) = Duration.ofMillis(config.getLong("contexts.${context.name}.subscriptions.$subscriptionName.repeat_schedule"))
+
+            override fun timeoutFor(subscriptionName: String) = Duration.ofMillis(config.getLong("contexts.${context.name}.subscriptions.$subscriptionName.timeout"))
 
             override fun enabled(subscriptionName: String) = config.getString("contexts.${context.name}.subscriptions.$subscriptionName.enabled")?.toBoolean() ?: true
         }

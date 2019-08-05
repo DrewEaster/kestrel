@@ -5,9 +5,12 @@ TODO
 ====
 
 * Complete the reactive refactor
-    * Use r2dbc-pool for connection pooling
-* Introduce consumer offset fix from 0.1.11
-* Make timeouts configurable per job
+    * Testing different failure scenarios
+* Improve error handling example HTTP handlers
+* General testing
+    * HTTP event sources
+    * Database backend
+    * Projections
 * Use Kotlin inline classes for IDs
 * Support for dry run command handling (i.e. handle command but don't persist events)
 * Support for automatic snapshotting of event sourced entities

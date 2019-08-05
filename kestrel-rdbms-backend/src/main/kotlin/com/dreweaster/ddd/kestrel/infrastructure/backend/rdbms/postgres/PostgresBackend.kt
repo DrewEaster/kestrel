@@ -18,6 +18,12 @@ class PostgresBackend(
         private val mapper: EventPayloadMapper,
         private val projections: List<ConsistentDatabaseProjection>) : Backend {
 
+    private val maxOffsetForAllEventsQueryString =
+        """
+            SELECT MAX(global_offset) as max_offset
+            FROM domain_event
+        """
+
     private val loadEventsForAggregateInstanceQueryString =
         """
             SELECT global_offset, event_id, aggregate_id, aggregate_type, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number
@@ -35,7 +41,7 @@ class PostgresBackend(
             LIMIT :limit
         """
 
-    private val maxOffsetForEventsForTagsAfterInstantQueryString =
+    private val maxQueryOffsetForEventsForTagsAfterInstantQueryString =
         """
             SELECT MAX(global_offset) as max_offset
             FROM domain_event
@@ -51,7 +57,7 @@ class PostgresBackend(
             LIMIT :limit
         """
 
-    private val maxOffsetForEventsForTagsAfterOffsetQueryString =
+    private val maxQueryOffsetForEventsForTagsAfterOffsetQueryString =
         """
             SELECT MAX(global_offset) as max_offset
             FROM domain_event
@@ -140,52 +146,65 @@ class PostgresBackend(
         return db.inTransaction(doSaveEvents)
     }
 
-    override fun <E : DomainEvent> loadEventStream(
+    override fun <E : DomainEvent> fetchEventFeed(
             tags: Set<DomainEventTag>,
             afterOffset: Long,
-            batchSize: Int): Mono<EventStream> = db.inTransaction { ctx ->
+            batchSize: Int): Mono<EventFeed> = db.inTransaction { ctx ->
 
-        ctx.select(maxOffsetForEventsForTagsAfterOffsetQueryString, { it["max_offset"].longOrNull ?: -1 }) {
-            this["tags"] = tags.map { tag -> tag.value }
-            this["after_offset"] = afterOffset
-        }.flatMap { maxOffset ->
-            ctx.select(loadEventsForTagsAfterOffsetQueryString, rowToStreamEvent<E>()) {
+        ctx.select(maxOffsetForAllEventsQueryString) { it["max_offset"].longOrNull ?: -1  }.flatMap { globalMaxOffset ->
+            ctx.select(maxQueryOffsetForEventsForTagsAfterOffsetQueryString, { it["max_offset"].longOrNull ?: -1 }) {
                 this["tags"] = tags.map { tag -> tag.value }
                 this["after_offset"] = afterOffset
-                this["limit"] = batchSize
-            }.collectList().map { events ->
-                EventStream(
-                    events = events,
-                    tags = tags,
-                    batchSize = batchSize,
-                    startOffset = events.firstOrNull()?.offset,
-                    endOffset = events.lastOrNull()?.offset,
-                    maxOffset = if(maxOffset == -1L) events.lastOrNull()?.offset ?: -1L else maxOffset)
+            }.flatMap { queryMaxOffset ->
+                ctx.select(loadEventsForTagsAfterOffsetQueryString, rowToStreamEvent<E>()) {
+                    this["tags"] = tags.map { tag -> tag.value }
+                    this["after_offset"] = afterOffset
+                    this["limit"] = batchSize
+                }.collectList().map { events ->
+                    val derivedQueryMaxOffset = if (queryMaxOffset == -1L) events.lastOrNull()?.offset ?: -1L else queryMaxOffset
+                    val derivedGlobalMaxOffset = if(globalMaxOffset == -1L ) derivedQueryMaxOffset else maxOf(globalMaxOffset, derivedQueryMaxOffset)
+                    EventFeed(
+                        events = events,
+                        tags = tags,
+                        pageSize = batchSize,
+                        pageStartOffset = events.firstOrNull()?.offset,
+                        pageEndOffset = events.lastOrNull()?.offset,
+                        queryMaxOffset = derivedQueryMaxOffset,
+                        globalMaxOffset = derivedGlobalMaxOffset
+                    )
+                }
             }
         }
     }.single()
 
-    override fun <E : DomainEvent> loadEventStream(
+    // TODO: Remove duplication
+    override fun <E : DomainEvent> fetchEventFeed(
             tags: Set<DomainEventTag>,
             afterInstant: Instant,
-            batchSize: Int): Mono<EventStream> = db.inTransaction { ctx ->
+            batchSize: Int): Mono<EventFeed> = db.inTransaction { ctx ->
 
-        ctx.select(maxOffsetForEventsForTagsAfterInstantQueryString, { it["max_offset"].longOrNull ?: -1 }) {
-            this["tags"] = tags.map { tag -> tag.value }
-            this["after_timestamp"] = afterInstant
-        }.flatMap { maxOffset ->
-            ctx.select(loadEventsForTagsAfterInstantQueryString, rowToStreamEvent<E>()) {
+        ctx.select(maxOffsetForAllEventsQueryString) { it["max_offset"].longOrNull ?: -1  }.flatMap { globalMaxOffset ->
+            ctx.select(maxQueryOffsetForEventsForTagsAfterInstantQueryString, { it["max_offset"].longOrNull ?: -1 }) {
                 this["tags"] = tags.map { tag -> tag.value }
                 this["after_timestamp"] = afterInstant
-                this["limit"] = batchSize
-            }.collectList().map { events ->
-                EventStream(
-                    events = events,
-                    tags = tags,
-                    batchSize = batchSize,
-                    startOffset = events.firstOrNull()?.offset,
-                    endOffset = events.lastOrNull()?.offset,
-                    maxOffset = if(maxOffset == -1L) events.lastOrNull()?.offset ?: -1L else maxOffset)
+            }.flatMap { queryMaxOffset ->
+                ctx.select(loadEventsForTagsAfterInstantQueryString, rowToStreamEvent<E>()) {
+                    this["tags"] = tags.map { tag -> tag.value }
+                    this["after_timestamp"] = afterInstant
+                    this["limit"] = batchSize
+                }.collectList().map { events ->
+                    val derivedQueryMaxOffset = if (queryMaxOffset == -1L) events.lastOrNull()?.offset ?: -1L else queryMaxOffset
+                    val derivedGlobalMaxOffset = if(globalMaxOffset == -1L ) derivedQueryMaxOffset else maxOf(globalMaxOffset, derivedQueryMaxOffset)
+                    EventFeed(
+                        events = events,
+                        tags = tags,
+                        pageSize = batchSize,
+                        pageStartOffset = events.firstOrNull()?.offset,
+                        pageEndOffset = events.lastOrNull()?.offset,
+                        queryMaxOffset = derivedQueryMaxOffset,
+                        globalMaxOffset = derivedGlobalMaxOffset
+                    )
+                }
             }
         }
     }.single()
@@ -213,7 +232,7 @@ class PostgresBackend(
         }
     }
 
-    private fun <E: DomainEvent> rowToStreamEvent(): (ResultRow) -> StreamEvent = { row ->
+    private fun <E: DomainEvent> rowToStreamEvent(): (ResultRow) -> FeedEvent = { row ->
         // Need to load then re-serialise event to ensure format is migrated if necessary
         val rawEvent = mapper.deserialiseEvent<E>(
             row["event_payload"].string,
@@ -223,7 +242,7 @@ class PostgresBackend(
 
         val serialisedPayload = mapper.serialiseEvent(rawEvent)
 
-        StreamEvent(
+        FeedEvent(
             offset = row["global_offset"].long,
             id = EventId(row["event_id"].string),
             aggregateId = AggregateId(row["aggregate_id"].string),

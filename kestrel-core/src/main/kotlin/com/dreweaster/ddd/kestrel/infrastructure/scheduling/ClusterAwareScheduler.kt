@@ -22,17 +22,22 @@ class ClusterAwareScheduler(private val clusterManager: Cluster): Scheduler {
 
     private val jobSchedulers = mutableListOf<reactor.core.scheduler.Scheduler>()
 
-    override fun scheduleManyTimes(repeatSchedule: Duration, job: Job) {
+    // TODO: Could introduce some form of exponential back off strategy for persistently failing jobs
+    override fun scheduleManyTimes(repeatSchedule: Duration, timeout: Duration, job: Job) {
         val jobScheduler = Schedulers.fromExecutor(Executors.newSingleThreadExecutor())
         jobSchedulers.add(jobScheduler)
 
-        jobs.add(delay(repeatSchedule)
+        jobs.add(Mono.from(ClusterSingletonJobWrapper(job).execute())
             .publishOn(jobScheduler)
             .subscribeOn(jobScheduler)
-            .flatMap { ClusterSingletonJobWrapper(job).execute() }
-            .timeout(repeatSchedule.multipliedBy(10)) // TODO: needs to be configurable
-            .then(fromCallable { LOG.info("Job execution succeeded: '${job.name}'")})
-            .onErrorResume { fromCallable { LOG.error("Job execution failed: '${job.name}'", it) } }
+            .timeout(timeout)
+            .flatMap { rescheduleImmediately ->
+                LOG.info("Job execution succeeded : '${job.name}'")
+                Mono.delay(if(rescheduleImmediately) Duration.ZERO else repeatSchedule) }
+            .onErrorResume {
+                LOG.error("Job execution failed: '${job.name}'", it)
+                Mono.delay(repeatSchedule)
+            }
             .repeat()
             .subscribe(
                 { },
@@ -52,7 +57,7 @@ class ClusterAwareScheduler(private val clusterManager: Cluster): Scheduler {
     inner class ClusterSingletonJobWrapper(private val wrappedJob: Job) : Job {
         override val name = wrappedJob.name
 
-        override fun execute(): Mono<Void> {
+        override fun execute(): Mono<Boolean> {
             return clusterManager.iAmTheLeader()
                 .flatMap { iAmTheLeader ->
                     when {
@@ -62,10 +67,10 @@ class ClusterAwareScheduler(private val clusterManager: Cluster): Scheduler {
                         }
                         else -> {
                             LOG.debug("Not running job '$name' as this instance is not leader")
-                            empty<Unit>()
+                            Mono.just(false)
                         }
                     }
-                }.then()
+                }
         }
     }
 }

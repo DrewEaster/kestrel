@@ -28,15 +28,15 @@ interface Backend {
             expectedSequenceNumber: Long,
             correlationId: CorrelationId? = null): Flux<PersistedEvent<E>>
 
-    fun <E : DomainEvent> loadEventStream(
+    fun <E : DomainEvent> fetchEventFeed(
             tags: Set<DomainEventTag>,
             afterOffset: Long,
-            batchSize: Int): Mono<EventStream>
+            batchSize: Int): Mono<EventFeed>
 
-    fun <E : DomainEvent> loadEventStream(
+    fun <E : DomainEvent> fetchEventFeed(
             tags: Set<DomainEventTag>,
             afterInstant: Instant,
-            batchSize: Int): Mono<EventStream>
+            batchSize: Int): Mono<EventFeed>
 }
 
 object OptimisticConcurrencyException : RuntimeException()
@@ -54,15 +54,16 @@ data class PersistedEvent<E : DomainEvent>(
         val timestamp: Instant,
         val sequenceNumber: Long)
 
-data class EventStream(
-        val events: List<StreamEvent>,
+data class EventFeed(
+        val events: List<FeedEvent>,
         val tags: Set<DomainEventTag>,
-        val batchSize: Int,
-        val startOffset: Long?,
-        val endOffset: Long?,
-        val maxOffset: Long)
+        val pageSize: Int,
+        val pageStartOffset: Long?,
+        val pageEndOffset: Long?,
+        val queryMaxOffset: Long,
+        val globalMaxOffset: Long)
 
-data class StreamEvent(
+data class FeedEvent(
         val offset: Long,
         val id: EventId,
         val aggregateType: String,
