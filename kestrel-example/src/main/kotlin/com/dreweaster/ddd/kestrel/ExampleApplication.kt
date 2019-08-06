@@ -14,7 +14,7 @@ import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.Json
 import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonEventPayloadMapper
 import com.dreweaster.ddd.kestrel.infrastructure.driven.readmodel.user.ConsistentUserProjection
 import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.*
-import com.dreweaster.ddd.kestrel.infrastructure.driving.eventstream.UserContextHttpEventStreamSourceFactory
+import com.dreweaster.ddd.kestrel.infrastructure.driving.eventfeed.UserContextHttpEventSourceFactory
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.BoundedContextHttpEventSourceConfiguration
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.PostgresOffsetTracker
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.producer.BoundedContextHttpJsonEventProducer
@@ -94,7 +94,7 @@ object Application {
         val jobManager = ClusterAwareScheduler(LocalCluster)
         val offsetManager = PostgresOffsetTracker(database)
 
-        val streamSourceFactories = listOf(UserContextHttpEventStreamSourceFactory)
+        val streamSourceFactories = listOf(UserContextHttpEventSourceFactory)
         val streamSources = BoundedContextEventSources(streamSourceFactories.map {
             it.name to it.createHttpEventSource(
                 httpClient = HttpClient.create(),

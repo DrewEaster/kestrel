@@ -6,7 +6,8 @@ import com.dreweaster.ddd.kestrel.application.scheduling.Scheduler
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.HttpJsonEventQuery
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.EventStreamOffset
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.EmptyOffset
+import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.EventSourceOffset
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.LastProcessedOffset
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.OffsetTracker
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.reporting.BoundedContextHttpEventSourceReporter
@@ -18,7 +19,6 @@ import com.google.gson.JsonParser
 import org.slf4j.LoggerFactory
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
-import reactor.core.publisher.switchIfEmpty
 import reactor.netty.http.client.HttpClient
 import java.time.Duration
 import java.time.Instant
@@ -32,7 +32,7 @@ data class HttpJsonEventMapper<T: DomainEvent>(
     val sourceEventType: FullyQualifiedClassName,
     val map: (JsonObject) -> T)
 
-data class FeedEvent(val json: JsonObject) {
+data class SourceEvent(val json: JsonObject) {
     val payload: JsonObject by lazy { json["payload"].asJsonObject }
     val type: String by lazy { json["type"].string }
     val offset: Long by lazy { json["offset"].long }
@@ -47,8 +47,8 @@ data class FeedEvent(val json: JsonObject) {
     }
 }
 
-data class EventFeedPage(val json: JsonObject, val pageSize: Int) {
-    val events: List<FeedEvent> by lazy { json["events"].asJsonArray.toList().map { FeedEvent(it.asJsonObject) }}
+data class EventSourcePage(val json: JsonObject, val pageSize: Int) {
+    val events: List<SourceEvent> by lazy { json["events"].asJsonArray.toList().map { SourceEvent(it.asJsonObject) }}
     val queryMaxOffset: Long by lazy { json["query_max_offset"].long }
     val globalMaxOffset: Long by lazy { json["global_max_offset"].long }
     val pageStartOffset: Long by lazy { json["page_start_offset"].long }
@@ -105,7 +105,7 @@ class BoundedContextHttpEventSource(
     override fun subscribe(handlers: Map<KClass<out DomainEvent>, ((DomainEvent, EventMetadata) -> Mono<Void>)>, subscriberConfiguration: BoundedContextSubscriberConfiguration) {
         val allTags = handlers.keys.map { targetClassToEventTag[it] ?: throw IllegalArgumentException("Unsupported event type: ${it.qualifiedName}") }.toSet()
 
-        val job = ConsumeHttpEventStreamJob(
+        val job = ConsumeHttpEventSourceJob(
                 tags = allTags,
                 subscriberConfiguration = subscriberConfiguration,
                 eventHandlers = handlers)
@@ -120,71 +120,73 @@ class BoundedContextHttpEventSource(
         }
     }
 
-    inner class ConsumeHttpEventStreamJob(
+    inner class ConsumeHttpEventSourceJob(
             private val eventHandlers: Map<KClass<out DomainEvent>, ((DomainEvent, EventMetadata) -> Mono<Void>)>,
             tags : Set<DomainEventTag>,
             private val subscriberConfiguration: BoundedContextSubscriberConfiguration) : Job {
 
         override val name = "${this@BoundedContextHttpEventSource.name.name}_${subscriberConfiguration.name}"
 
-        private val requestFactory = HttpEventStreamSubscriptionEdenPolicy.from(subscriberConfiguration.edenPolicy)
+        private val requestFactory = HttpEventSourceSubscriptionEdenPolicy.from(subscriberConfiguration.edenPolicy)
             .newRequestFactory(
                 subscriberConfiguration = configuration,
                 tags = tags,
                 batchSize = configuration.batchSizeFor(subscriberConfiguration.name))
 
+        // TODO: Arguably a little inefficient in that it updates offset after handling each event rather than in batches. Does reduce volume of redeliveries, though
         override fun execute(): Mono<Boolean> {
             return fetchOffset()
-                .flatMap(fetchEventFeed)
-                .flatMap { eventFeedPage ->
-                    // TODO: Inefficient in that it updates offset after handling each event rather than in batches. Does reduce volume of redeliveries, though
-                    processEvents(eventFeedPage)
-                        .flatMap(saveOffset)
-                        .then(Mono.just(hasBacklog(eventFeedPage)))
-                }
+                .flatMap ( fetchEventSourcePage )
+                .flatMap { processEvents(it).then(Mono.just(hasBacklog(it.second))) }
         }
 
-        private val handleEvent: (FeedEvent) -> Mono<Long> = { feedEvent ->
-            (sourceEventTypeToMapper[feedEvent.type]?.let { mapper ->
-                val event = mapper(feedEvent.payload)
-                val eventHandler = eventHandlers[event::class]
-                eventHandler?.invoke(event, feedEvent.metadata)
-            } ?: Mono.empty()).then(Mono.just(feedEvent.offset))
+        private val handleEvent: (SourceEvent) -> Mono<Void> = { event ->
+            (sourceEventTypeToMapper[event.type]?.let { mapper ->
+                val rawEvent = mapper(event.payload)
+                val eventHandler = eventHandlers[rawEvent::class]
+                eventHandler?.invoke(rawEvent, event.metadata)
+            } ?: Mono.empty()).then(Mono.just(event.offset)).flatMap(saveOffset)
         }
 
         private val saveOffset: (Long) -> Mono<Void> = { offset ->
             offsetManager.saveOffset(name, offset)
         }
 
-        private fun fetchOffset(): Mono<out EventStreamOffset> = offsetManager.getOffset(name)
+        private fun fetchOffset(): Mono<out EventSourceOffset> = offsetManager.getOffset(name)
 
-        private val fetchEventFeed: (EventStreamOffset) -> Mono<EventFeedPage> = { eventStreamOffset ->
-            val offset = when(eventStreamOffset) {
-                is LastProcessedOffset -> eventStreamOffset.value
+        private val fetchEventSourcePage: (EventSourceOffset) -> Mono<Pair<EventSourceOffset, EventSourcePage>> = { eventSourceOffset ->
+            val offset = when(eventSourceOffset) {
+                is LastProcessedOffset -> eventSourceOffset.value
                 else -> null
             }
 
             requestFactory.createRequest(offset)(httpClient).map {
-                EventFeedPage(it, configuration.batchSizeFor(subscriberConfiguration.name))
+                eventSourceOffset to EventSourcePage(it, configuration.batchSizeFor(subscriberConfiguration.name))
             }
         }
 
-        private fun processEvents(page: EventFeedPage): Flux<Long> {
-            return if(page.events.isEmpty()) {
-                val derivedOffset = maxOf(page.queryMaxOffset, page.globalMaxOffset)
-                if(configuration.batchSizeFor(subscriberConfiguration.name) > 0 && derivedOffset > -1L) Flux.just(derivedOffset) else Flux.empty()
+        private fun processEvents(page: Pair<EventSourceOffset, EventSourcePage>): Mono<Void> {
+            val (currentOffset, currentPage) = page
+            return if(currentPage.events.isEmpty()) {
+                val derivedOffset = maxOf(currentPage.queryMaxOffset, currentPage.globalMaxOffset)
+                if(configuration.batchSizeFor(subscriberConfiguration.name) > 0 && derivedOffset > -1L && offsetHasChanged(currentOffset, derivedOffset)) Mono.just(derivedOffset).flatMap(saveOffset) else Mono.empty()
             } else {
-                Flux.fromIterable(page.events).flatMap(handleEvent)
+                Flux.fromIterable(currentPage.events).concatMap(handleEvent).then()
             }
         }
 
-        private fun hasBacklog(page: EventFeedPage): Boolean {
+        private fun offsetHasChanged(currentOffset: EventSourceOffset, newOffset: Long) = when(currentOffset) {
+            is LastProcessedOffset -> newOffset > currentOffset.value
+            else -> true
+        }
+
+        private fun hasBacklog(page: EventSourcePage): Boolean {
             return page.pageSize > 0 && page.events.isNotEmpty() && (page.pageEndOffset < page.queryMaxOffset)
         }
     }
 }
 
-sealed class HttpEventStreamSubscriptionEdenPolicy {
+sealed class HttpEventSourceSubscriptionEdenPolicy {
 
     val jsonParser = JsonParser()
 
@@ -205,7 +207,7 @@ sealed class HttpEventStreamSubscriptionEdenPolicy {
     }
 }
 
-object BeginningOfTime : HttpEventStreamSubscriptionEdenPolicy() {
+object BeginningOfTime : HttpEventSourceSubscriptionEdenPolicy() {
     override fun newRequestFactory(
             subscriberConfiguration: BoundedContextHttpEventSourceConfiguration,
             tags: Set<DomainEventTag>,
@@ -239,7 +241,7 @@ object BeginningOfTime : HttpEventStreamSubscriptionEdenPolicy() {
     }
 }
 
-object FromNow : HttpEventStreamSubscriptionEdenPolicy() {
+object FromNow : HttpEventSourceSubscriptionEdenPolicy() {
     override fun newRequestFactory(
             subscriberConfiguration: BoundedContextHttpEventSourceConfiguration,
             tags: Set<DomainEventTag>,

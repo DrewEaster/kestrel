@@ -13,10 +13,9 @@ TODO
     * Projections
 * Use Kotlin inline classes for IDs
 * Support for dry run command handling (i.e. handle command but don't persist events)
-* Support for automatic snapshotting of event sourced entities
+* Support for automatic snapshotting of event sourced entities (with JSON payload mapper functionality)
 * Sort out dependencies on Database module - PostgresOffsetTracker in wrong module?
 * Re-enable reporters/probes
-* Get rid of event stream terminology where it's not really a stream
 * Eventually consistent (async) DB projections (db offset manager)
 * Stateful process manager support
 * Type-safe SQL string builder

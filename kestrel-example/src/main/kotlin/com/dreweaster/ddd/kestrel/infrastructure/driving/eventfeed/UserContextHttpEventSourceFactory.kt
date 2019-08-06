@@ -1,4 +1,4 @@
-package com.dreweaster.ddd.kestrel.infrastructure.driving.eventstream
+package com.dreweaster.ddd.kestrel.infrastructure.driving.eventfeed
 
 import com.dreweaster.ddd.kestrel.application.BoundedContexts.UserContext
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.*
@@ -7,7 +7,7 @@ import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.UserR
 import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.UsernameChangedMapper
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.BoundedContextHttpEventSourceFactory
 
-object UserContextHttpEventStreamSourceFactory: BoundedContextHttpEventSourceFactory(UserContext) {
+object UserContextHttpEventSourceFactory: BoundedContextHttpEventSourceFactory(UserContext) {
 
     override val mappers = eventMappers {
 

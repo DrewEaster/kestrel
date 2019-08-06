@@ -2,13 +2,13 @@ package com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offs
 
 import reactor.core.publisher.Mono
 
-sealed class EventStreamOffset
-data class LastProcessedOffset(val value: Long): EventStreamOffset()
-object EmptyOffset: EventStreamOffset()
+sealed class EventSourceOffset
+data class LastProcessedOffset(val value: Long): EventSourceOffset()
+object EmptyOffset: EventSourceOffset()
 
 interface OffsetTracker {
 
-    fun getOffset(offsetKey: String): Mono<out EventStreamOffset>
+    fun getOffset(offsetKey: String): Mono<out EventSourceOffset>
 
     fun saveOffset(offsetKey: String, offset: Long): Mono<Void>
 }

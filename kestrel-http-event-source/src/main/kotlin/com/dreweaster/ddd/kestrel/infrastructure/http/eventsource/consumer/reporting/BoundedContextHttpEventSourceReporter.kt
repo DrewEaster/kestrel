@@ -13,11 +13,11 @@ interface BoundedContextHttpEventSourceProbe {
 
     fun finishedConsuming(ex: Throwable)
 
-    fun startedFetchingEventStream()
+    fun startedFetchingEvents()
 
-    fun finishedFetchingEventStream(maxOffset: Long)
+    fun finishedFetchingEvents(maxOffset: Long)
 
-    fun finishedFetchingEventStream(ex: Throwable)
+    fun finishedFetchingEvents(ex: Throwable)
 
     fun startedFetchingOffset()
 
@@ -54,16 +54,16 @@ class ReportingContext(subscriptionName: String, reporters: List<BoundedContextH
         probes.forEach { it.finishedConsuming(ex) }
     }
 
-    override fun startedFetchingEventStream() {
-        probes.forEach { it.startedFetchingEventStream() }
+    override fun startedFetchingEvents() {
+        probes.forEach { it.startedFetchingEvents() }
     }
 
-    override fun finishedFetchingEventStream(maxOffset: Long) {
-        probes.forEach { it.finishedFetchingEventStream(maxOffset)  }
+    override fun finishedFetchingEvents(maxOffset: Long) {
+        probes.forEach { it.finishedFetchingEvents(maxOffset)  }
     }
 
-    override fun finishedFetchingEventStream(ex: Throwable) {
-        probes.forEach { it.finishedFetchingEventStream(ex) }
+    override fun finishedFetchingEvents(ex: Throwable) {
+        probes.forEach { it.finishedFetchingEvents(ex) }
     }
 
     override fun startedFetchingOffset() {
@@ -119,15 +119,15 @@ object ConsoleReporter : BoundedContextHttpEventSourceReporter {
 
         }
 
-        override fun startedFetchingEventStream() {
+        override fun startedFetchingEvents() {
 
         }
 
-        override fun finishedFetchingEventStream(maxOffset: Long) {
+        override fun finishedFetchingEvents(maxOffset: Long) {
 
         }
 
-        override fun finishedFetchingEventStream(ex: Throwable) {
+        override fun finishedFetchingEvents(ex: Throwable) {
 
         }
 
