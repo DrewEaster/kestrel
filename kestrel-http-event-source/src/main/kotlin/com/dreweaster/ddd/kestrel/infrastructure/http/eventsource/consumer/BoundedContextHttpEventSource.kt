@@ -6,10 +6,9 @@ import com.dreweaster.ddd.kestrel.application.scheduling.Scheduler
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.HttpJsonEventQuery
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.EmptyOffset
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.EventSourceOffset
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.LastProcessedOffset
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.OffsetTracker
+import com.dreweaster.ddd.kestrel.application.offset.Offset
+import com.dreweaster.ddd.kestrel.application.offset.LastProcessedOffset
+import com.dreweaster.ddd.kestrel.application.offset.OffsetTracker
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.reporting.BoundedContextHttpEventSourceReporter
 import com.github.salomonbrys.kotson.long
 import com.github.salomonbrys.kotson.nullString
@@ -74,14 +73,13 @@ interface BoundedContextHttpEventSourceConfiguration {
     fun enabled(subscriptionName: String): Boolean
 }
 
-// TODO: Need to factor skipped events into batch size - i.e. always event minimum of batch size even if that means fetching multiple batches
 // TODO: Renable monitoring
 class BoundedContextHttpEventSource(
         val name: BoundedContextName,
         val httpClient: HttpClient,
         val configuration: BoundedContextHttpEventSourceConfiguration,
         eventMappers: List<HttpJsonEventMapper<*>>,
-        val offsetManager: OffsetTracker,
+        val offsetTracker: OffsetTracker,
         private val jobManager: Scheduler): BoundedContextEventSource {
 
     private val LOG = LoggerFactory.getLogger(BoundedContextHttpEventSource::class.java)
@@ -149,12 +147,12 @@ class BoundedContextHttpEventSource(
         }
 
         private val saveOffset: (Long) -> Mono<Void> = { offset ->
-            offsetManager.saveOffset(name, offset)
+            offsetTracker.saveOffset(name, offset)
         }
 
-        private fun fetchOffset(): Mono<out EventSourceOffset> = offsetManager.getOffset(name)
+        private fun fetchOffset(): Mono<out Offset> = offsetTracker.getOffset(name)
 
-        private val fetchEventSourcePage: (EventSourceOffset) -> Mono<Pair<EventSourceOffset, EventSourcePage>> = { eventSourceOffset ->
+        private val fetchEventSourcePage: (Offset) -> Mono<Pair<Offset, EventSourcePage>> = { eventSourceOffset ->
             val offset = when(eventSourceOffset) {
                 is LastProcessedOffset -> eventSourceOffset.value
                 else -> null
@@ -165,7 +163,7 @@ class BoundedContextHttpEventSource(
             }
         }
 
-        private fun processEvents(page: Pair<EventSourceOffset, EventSourcePage>): Mono<Void> {
+        private fun processEvents(page: Pair<Offset, EventSourcePage>): Mono<Void> {
             val (currentOffset, currentPage) = page
             return if(currentPage.events.isEmpty()) {
                 val derivedOffset = maxOf(currentPage.queryMaxOffset, currentPage.globalMaxOffset)
@@ -175,7 +173,7 @@ class BoundedContextHttpEventSource(
             }
         }
 
-        private fun offsetHasChanged(currentOffset: EventSourceOffset, newOffset: Long) = when(currentOffset) {
+        private fun offsetHasChanged(currentOffset: Offset, newOffset: Long) = when(currentOffset) {
             is LastProcessedOffset -> newOffset > currentOffset.value
             else -> true
         }

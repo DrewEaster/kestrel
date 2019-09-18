@@ -11,10 +11,8 @@
         <module>kestrel-example</module>
         <module>kestrel-inmemory-backend</module>
         <module>kestrel-json</module>
-        <module>kestrel-rdbms-backend</module>
+        <module>kestrel-rdbms</module>
         <module>kestrel-http-event-source</module>
-        <module>kestrel-dropwizard-metrics</module>
-        <module>kestrel-prometheus-metrics</module>
     </modules>
     <packaging>pom</packaging>
 

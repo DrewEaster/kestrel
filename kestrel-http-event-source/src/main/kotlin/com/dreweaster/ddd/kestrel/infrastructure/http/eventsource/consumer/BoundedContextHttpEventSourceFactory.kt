@@ -4,7 +4,7 @@ import com.dreweaster.ddd.kestrel.application.BoundedContextName
 import com.dreweaster.ddd.kestrel.application.scheduling.Scheduler
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.OffsetTracker
+import com.dreweaster.ddd.kestrel.application.offset.OffsetTracker
 import com.google.gson.JsonObject
 import reactor.netty.http.client.HttpClient
 
@@ -22,7 +22,7 @@ abstract class BoundedContextHttpEventSourceFactory(val name: BoundedContextName
     fun createHttpEventSource(
             httpClient: HttpClient,
             configuration: BoundedContextHttpEventSourceConfiguration,
-            offsetManager: OffsetTracker,
+            offsetTracker: OffsetTracker,
             jobManager: Scheduler): BoundedContextHttpEventSource {
 
         return BoundedContextHttpEventSource(
@@ -30,7 +30,7 @@ abstract class BoundedContextHttpEventSourceFactory(val name: BoundedContextName
             httpClient = httpClient,
             configuration = configuration,
             jobManager = jobManager,
-            offsetManager = offsetManager,
+            offsetTracker = offsetTracker,
             eventMappers = mappers.build()
         )
     }

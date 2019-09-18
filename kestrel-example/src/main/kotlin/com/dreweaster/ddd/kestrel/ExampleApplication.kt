@@ -1,22 +1,22 @@
 package com.dreweaster.ddd.kestrel
 
 import com.dreweaster.ddd.kestrel.application.*
-import com.dreweaster.ddd.kestrel.application.consumer.HelloNewUser
-import com.dreweaster.ddd.kestrel.application.consumer.WarnUserLocked
+import com.dreweaster.ddd.kestrel.application.processmanager.stateless.HelloNewUser
+import com.dreweaster.ddd.kestrel.application.processmanager.stateless.WarnUserLocked
 import com.dreweaster.ddd.kestrel.application.readmodel.user.UserDTO
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.RegisterUser
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.User
-import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.postgres.PostgresBackend
-import com.dreweaster.ddd.kestrel.infrastructure.backend.rdbms.r2dbc.R2dbcDatabase
+import com.dreweaster.ddd.kestrel.infrastructure.rdbms.backend.PostgresBackend
+import com.dreweaster.ddd.kestrel.infrastructure.rdbms.r2dbc.R2dbcDatabase
 import com.dreweaster.ddd.kestrel.infrastructure.cluster.LocalCluster
 import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonEventMappingConfigurer
 import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonEventPayloadMapper
-import com.dreweaster.ddd.kestrel.infrastructure.driven.readmodel.user.ConsistentUserProjection
+import com.dreweaster.ddd.kestrel.infrastructure.driven.readmodel.user.ImmediatelyConsistentUserProjection
 import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.*
-import com.dreweaster.ddd.kestrel.infrastructure.driving.eventfeed.UserContextHttpEventSourceFactory
+import com.dreweaster.ddd.kestrel.infrastructure.driving.eventsource.UserContextHttpEventSourceFactory
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.BoundedContextHttpEventSourceConfiguration
-import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.offset.PostgresOffsetTracker
+import com.dreweaster.ddd.kestrel.infrastructure.rdbms.offset.PostgresOffsetTracker
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.producer.BoundedContextHttpJsonEventProducer
 import com.dreweaster.ddd.kestrel.infrastructure.scheduling.ClusterAwareScheduler
 import com.github.salomonbrys.kotson.jsonArray
@@ -44,8 +44,6 @@ import reactor.netty.http.server.HttpServerRequest
 import reactor.netty.http.server.HttpServerResponse
 import java.time.Duration
 import io.r2dbc.pool.ConnectionPoolConfiguration
-
-
 
 fun main(args: Array<String>) {
     Application.run()
@@ -88,7 +86,7 @@ object Application {
         ) as List<JsonEventMappingConfigurer<DomainEvent>>)
 
         val config = ConfigFactory.load()
-        val userReadModel = ConsistentUserProjection(database)
+        val userReadModel = ImmediatelyConsistentUserProjection(database)
         val backend = PostgresBackend(database, payloadMapper, listOf(userReadModel))
         val domainModel = EventSourcedDomainModel(backend, TwentyFourHourWindowCommandDeduplication)
         val jobManager = ClusterAwareScheduler(LocalCluster)
@@ -100,7 +98,7 @@ object Application {
                 httpClient = HttpClient.create(),
                 configuration = createHttpEventSourceConfiguration(it.name, config),
                 jobManager = jobManager,
-                offsetManager = offsetManager
+                offsetTracker = offsetManager
             )
         })
 

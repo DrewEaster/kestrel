@@ -14,7 +14,7 @@ import java.util.concurrent.Executors
 /**
  * TODO: Need to implement shutdown of jobs
  */
-class ClusterAwareScheduler(private val clusterManager: Cluster): Scheduler {
+class ClusterAwareScheduler(private val cluster: Cluster): Scheduler {
 
     private val LOG = LoggerFactory.getLogger(ClusterAwareScheduler::class.java)
 
@@ -58,7 +58,7 @@ class ClusterAwareScheduler(private val clusterManager: Cluster): Scheduler {
         override val name = wrappedJob.name
 
         override fun execute(): Mono<Boolean> {
-            return clusterManager.iAmTheLeader()
+            return cluster.iAmTheLeader()
                 .flatMap { iAmTheLeader ->
                     when {
                         iAmTheLeader -> {
