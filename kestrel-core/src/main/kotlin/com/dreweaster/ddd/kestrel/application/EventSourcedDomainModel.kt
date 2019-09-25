@@ -14,16 +14,6 @@ class EventSourcedDomainModel(
         private val backend: Backend,
         private val commandDeduplicationStrategyFactory: CommandDeduplicationStrategyFactory) : DomainModel {
 
-    private var reporters: List<DomainModelReporter> = emptyList()
-
-    override fun addReporter(reporter: DomainModelReporter) {
-        reporters += reporter
-    }
-
-    override fun removeReporter(reporter: DomainModelReporter) {
-        reporters -= reporter
-    }
-
     override fun <C : DomainCommand, E : DomainEvent, S : AggregateState> aggregateRootOf(
             aggregateType: Aggregate<C, E, S>,
             aggregateId: AggregateId): AggregateRoot<C, E, S> {

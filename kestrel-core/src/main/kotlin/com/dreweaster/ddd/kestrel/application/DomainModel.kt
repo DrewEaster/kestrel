@@ -54,8 +54,4 @@ interface DomainModel {
     fun <C: DomainCommand, E: DomainEvent, S: AggregateState> aggregateRootOf(
             aggregateType: Aggregate<C,E,S>,
             aggregateId: AggregateId = AggregateId()): AggregateRoot<C,E,S>
-
-    fun addReporter(reporter: DomainModelReporter)
-
-    fun removeReporter(reporter: DomainModelReporter)
 }

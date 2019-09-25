@@ -4,14 +4,14 @@ import com.dreweaster.ddd.kestrel.application.*
 import com.dreweaster.ddd.kestrel.application.processmanager.stateless.HelloNewUser
 import com.dreweaster.ddd.kestrel.application.processmanager.stateless.WarnUserLocked
 import com.dreweaster.ddd.kestrel.application.readmodel.user.UserDTO
-import com.dreweaster.ddd.kestrel.domain.DomainEvent
+import com.dreweaster.ddd.kestrel.domain.AggregateData
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.RegisterUser
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.User
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.backend.PostgresBackend
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.r2dbc.R2dbcDatabase
 import com.dreweaster.ddd.kestrel.infrastructure.cluster.LocalCluster
-import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonEventMappingConfigurer
-import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonEventPayloadMapper
+import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonMapper
+import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonMappingContext
 import com.dreweaster.ddd.kestrel.infrastructure.driven.readmodel.user.ImmediatelyConsistentUserProjection
 import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.*
 import com.dreweaster.ddd.kestrel.infrastructure.driving.eventsource.UserContextHttpEventSourceFactory
@@ -19,12 +19,12 @@ import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.Bound
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.offset.PostgresOffsetTracker
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.producer.BoundedContextHttpJsonEventProducer
 import com.dreweaster.ddd.kestrel.infrastructure.scheduling.ClusterAwareScheduler
-import com.github.salomonbrys.kotson.jsonArray
-import com.github.salomonbrys.kotson.jsonObject
-import com.github.salomonbrys.kotson.string
-import com.google.gson.Gson
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
+import com.dreweaster.ddd.kestrel.util.json.jsonArray
+import com.dreweaster.ddd.kestrel.util.json.jsonObject
+import com.dreweaster.ddd.kestrel.util.json.obj
+import com.dreweaster.ddd.kestrel.util.json.string
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.node.ObjectNode
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import io.netty.handler.codec.http.HttpHeaderNames.*
@@ -51,7 +51,7 @@ fun main(args: Array<String>) {
 
 object Application {
 
-    private val jsonParser = JsonParser()
+    private val objectMapper = ObjectMapper()
 
     fun run() {
 
@@ -77,22 +77,22 @@ object Application {
 
         val database = R2dbcDatabase(R2dbc(pool))
 
-        val payloadMapper = JsonEventPayloadMapper(Gson(), listOf(
+        val mappingContext = JsonMappingContext(listOf(
                 UserRegisteredMapper,
                 UsernameChangedMapper,
                 PasswordChangedMapper,
                 FailedLoginAttemptsIncrementedMapper,
                 UserLockedMapper
-        ) as List<JsonEventMappingConfigurer<DomainEvent>>)
+        ) as List<JsonMapper<AggregateData>>)
 
         val config = ConfigFactory.load()
         val userReadModel = ImmediatelyConsistentUserProjection(database)
-        val backend = PostgresBackend(database, payloadMapper, listOf(userReadModel))
+        val backend = PostgresBackend(database, mappingContext, listOf(userReadModel))
         val domainModel = EventSourcedDomainModel(backend, TwentyFourHourWindowCommandDeduplication)
         val jobManager = ClusterAwareScheduler(LocalCluster)
         val offsetManager = PostgresOffsetTracker(database)
 
-        val streamSourceFactories = listOf(UserContextHttpEventSourceFactory)
+        val streamSourceFactories = listOf(UserContextHttpEventSourceFactory(mappingContext))
         val streamSources = BoundedContextEventSources(streamSourceFactories.map {
             it.name to it.createHttpEventSource(
                 httpClient = HttpClient.create(),
@@ -137,7 +137,7 @@ object Application {
         server.onDispose().block()
     }
 
-    private val userToJsonObject: (UserDTO) -> JsonObject = { user ->
+    private val userToJsonObject: (UserDTO) -> ObjectNode = { user ->
         jsonObject(
             "id" to user.id,
             "username" to user.username,
@@ -165,16 +165,18 @@ object Application {
             override fun timeoutFor(subscriptionName: String) = Duration.ofMillis(config.getLong("contexts.${context.name}.subscriptions.$subscriptionName.timeout"))
 
             override fun enabled(subscriptionName: String) = config.getString("contexts.${context.name}.subscriptions.$subscriptionName.enabled")?.toBoolean() ?: true
+
+            override fun ignoreUnrecognisedEvents(subscriptionName: String) = config.getString("contexts.${context.name}.subscriptions.$subscriptionName.ignore_unrecognised_events")?.toBoolean() ?: true
         }
     }
 
     private fun HttpServerRequest.queryParams(): Map<String, List<String>> = QueryStringDecoder(this.uri()).parameters()
 
-    private fun <T> HttpServerRequest.receiveJsonObject(mapper: (JsonObject) -> T): Mono<T> {
-        return this.receive().aggregate().asString().map { jsonParser.parse(it).asJsonObject }.map(mapper)
+    private fun <T> HttpServerRequest.receiveJsonObject(mapper: (ObjectNode) -> T): Mono<T> {
+        return this.receive().aggregate().asString().map { objectMapper.readTree(it).obj }.map(mapper)
     }
 
-    private fun <T> HttpServerResponse.sendObjectAsJson(obj: Mono<T?>, mapper: (T) -> JsonObject): Publisher<Void> {
+    private fun <T> HttpServerResponse.sendObjectAsJson(obj: Mono<T?>, mapper: (T) -> ObjectNode): Publisher<Void> {
         return obj.flatMap { maybeObject ->
             maybeObject?.let { obj ->
                 this.status(OK)
@@ -185,7 +187,7 @@ object Application {
         }
     }
 
-    private fun <T> HttpServerResponse.sendListAsJson(objList: Mono<List<T>>, mapper: (T) -> JsonObject): NettyOutbound {
+    private fun <T> HttpServerResponse.sendListAsJson(objList: Mono<List<T>>, mapper: (T) -> ObjectNode): NettyOutbound {
         val jsonString = objList.map { arrayItems -> arrayItems.map { mapper(it) } }.map { jsonArray(it) }.map { it.toString() }
         return with(this) {
             status(OK)
@@ -199,7 +201,7 @@ object Application {
 
 data class RegisterUserRequest(val id: AggregateId, val username: String, val password: String) {
     companion object {
-        val mapper: (JsonObject) -> RegisterUserRequest = { jsonObject ->
+        val mapper: (ObjectNode) -> RegisterUserRequest = { jsonObject ->
             val username = jsonObject["username"].string
             val password = jsonObject["password"].string
             RegisterUserRequest(AggregateId(IdGenerator.randomId()), username, password)

@@ -18,7 +18,6 @@ class HelloNewUser constructor(boundedContexts: BoundedContextEventSources): Sta
             subscribe(context = UserContext, edenPolicy = FROM_NOW) {
 
                 event<UserRegistered> { event, _ ->
-                    //Mono.error(RuntimeException("Bollocks"))
                     fromRunnable { LOG.info("Hello ${event.username}!") }
                 }
             }

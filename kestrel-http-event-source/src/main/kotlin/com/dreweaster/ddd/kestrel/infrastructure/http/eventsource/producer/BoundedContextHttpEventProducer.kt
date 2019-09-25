@@ -6,17 +6,14 @@ import com.dreweaster.ddd.kestrel.application.FeedEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.HttpJsonEventQuery
 import com.dreweaster.ddd.kestrel.infrastructure.http.util.TimeUtils
-import com.github.salomonbrys.kotson.jsonArray
-import com.github.salomonbrys.kotson.jsonObject
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
+import com.dreweaster.ddd.kestrel.util.json.jsonArray
+import com.dreweaster.ddd.kestrel.util.json.jsonObject
+import com.fasterxml.jackson.databind.node.ObjectNode
 import reactor.core.publisher.Mono
 
 class BoundedContextHttpJsonEventProducer(val backend: Backend) {
 
-    private val jsonParser = JsonParser()
-
-    fun produceFrom(urlQueryParameters: Map<String, List<String>>): Mono<JsonObject> {
+    fun produceFrom(urlQueryParameters: Map<String, List<String>>): Mono<ObjectNode> {
         return convertStreamToJsonResponse(fetchEvents(HttpJsonEventQuery.from(urlQueryParameters)))
     }
 
@@ -58,6 +55,7 @@ class BoundedContextHttpJsonEventProducer(val backend: Backend) {
             "tag" to event.eventTag.value,
             "timestamp" to TimeUtils.instantToUTCString(event.timestamp),
             "sequence_number" to event.sequenceNumber,
-            "payload" to jsonParser.parse(event.serialisedPayload)
+            "payload" to event.serialisedPayload,
+            "version" to event.eventVersion
         )
 }

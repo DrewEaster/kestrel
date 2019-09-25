@@ -4,6 +4,10 @@ Simple DDD toolkit for Kotlin
 TODO
 ====
 
+* Drop implicit migration of event payloads in http event sources - introduce versioning into consumers (with errors where appropriate)
+    * Specific exception when unable to find deserializer for class type and version - should stall consumer progress
+* Implement example using Micronaut framework
+    * Switch to using POJO objects for request/response body bindings and register custom Jackson JsonSerializers/JsonDeserializers to maintain clean architecture without POJO annotations (especially useful when POJOs are defined in service layer)
 * Complete the reactive refactor
     * Testing different failure scenarios
 * Improve error handling example HTTP handlers
@@ -20,7 +24,6 @@ TODO
 * Type-safe SQL string builder
 * Kestrel application bootstrap module (e.g. KestrelRdbmsApplication)
 * Debezium + Kafka/Kinesis stream support
-* Consider dropping implicit migration of event payloads in http event sources - introduce versioning into consumers
 * Switch stateless process manager to be similar to stateful one (e.g. explicit domain service dependency)
 * Register (stateless) process managers with application rather than start themselves
 * Default JSON mapper functionality for v1 of events? Or maybe at least code generation?

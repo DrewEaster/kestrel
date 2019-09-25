@@ -15,7 +15,7 @@ import kotlin.reflect.KClass
 
 class PostgresBackend(
         private val db: Database,
-        private val mapper: EventPayloadMapper,
+        private val mappingContext: AggregateDataMappingContext,
         private val projections: List<ConsistentDatabaseProjection>) : Backend {
 
     private val maxOffsetForAllEventsQueryString =
@@ -105,7 +105,7 @@ class PostgresBackend(
                     correlationId = correlationId,
                     eventType = e::class as KClass<E>,
                     rawEvent = e,
-                    serialisationResult = mapper.serialiseEvent(e),
+                    serialisationResult = mappingContext.serialise(e),
                     timestamp = Instant.now(),
                     sequenceNumber = acc.first
             ))
@@ -211,7 +211,7 @@ class PostgresBackend(
 
     private fun <E: DomainEvent> rowToPersistedEvent(aggregateType: Aggregate<*,E,*>): (ResultRow) -> PersistedEvent<E>  {
         return { row ->
-            val rawEvent = this.mapper.deserialiseEvent<E>(
+            val rawEvent = this.mappingContext.deserialise<E>(
                 row["event_payload"].string,
                 row["event_type"].string,
                 row["event_version"].int
@@ -233,15 +233,6 @@ class PostgresBackend(
     }
 
     private fun <E: DomainEvent> rowToStreamEvent(): (ResultRow) -> FeedEvent = { row ->
-        // Need to load then re-serialise event to ensure format is migrated if necessary
-        val rawEvent = mapper.deserialiseEvent<E>(
-            row["event_payload"].string,
-            row["event_type"].string,
-            row["event_version"].int
-        )
-
-        val serialisedPayload = mapper.serialiseEvent(rawEvent)
-
         FeedEvent(
             offset = row["global_offset"].long,
             id = EventId(row["event_id"].string),
@@ -249,12 +240,12 @@ class PostgresBackend(
             aggregateType = row["aggregate_type"].string,
             causationId = CausationId(row["causation_id"].string),
             correlationId = row["correlation_id"].stringOrNull?.let { CorrelationId(it) },
-            eventType = rawEvent::class.qualifiedName!!,
+            eventType = row["event_type"].string,
             eventTag = DomainEventTag(row["tag"].string),
-            payloadContentType = serialisedPayload.contentType,
-            serialisedPayload = serialisedPayload.payload,
+            serialisedPayload = row["event_payload"].string,
             timestamp = row["event_timestamp"].instant,
-            sequenceNumber = row["sequence_number"].long
+            sequenceNumber = row["sequence_number"].long,
+            eventVersion = row["event_version"].int
         )
     }
 
@@ -266,7 +257,7 @@ class PostgresBackend(
             val correlationId: CorrelationId?,
             val eventType: KClass<E>,
             val rawEvent: E,
-            val serialisationResult: PayloadSerialisationResult,
+            val serialisationResult: AggregateDataSerialisationResult,
             val timestamp: Instant,
             val sequenceNumber: Long) {
 

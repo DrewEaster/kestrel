@@ -1,30 +1,29 @@
 package com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user
 
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.UserRegistered
-import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonEventMappingConfigurationFactory
-import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonEventMappingConfigurer
-import com.github.salomonbrys.kotson.jsonObject
-import com.github.salomonbrys.kotson.string
-import com.google.gson.JsonObject
+import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonMapperBuilderFactory
+import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonMapper
+import com.dreweaster.ddd.kestrel.util.json.jsonObject
+import com.dreweaster.ddd.kestrel.util.json.string
+import com.fasterxml.jackson.databind.node.ObjectNode
+object UserRegisteredMapper : JsonMapper<UserRegistered> {
 
-object UserRegisteredMapper : JsonEventMappingConfigurer<UserRegistered> {
-
-    val serialiser: (UserRegistered) -> JsonObject = { event ->
+    val serialiser: (UserRegistered) -> ObjectNode = { event ->
         jsonObject(
             "username" to event.username,
             "password" to event.password
         )
     }
 
-    val deserialiser: (JsonObject) -> UserRegistered = { node ->
+    val deserialiser: (ObjectNode) -> UserRegistered = { node ->
         UserRegistered(
             username = node["username"].string,
             password = node["password"].string
         )
     }
 
-    override fun configure(configurationFactory: JsonEventMappingConfigurationFactory<UserRegistered>) {
-        configurationFactory.create(UserRegistered::class.qualifiedName!!)
+    override fun configure(factory: JsonMapperBuilderFactory<UserRegistered>) {
+        factory.create(UserRegistered::class.qualifiedName!!)
             .mappingFunctions(serialiser, deserialiser)
     }
 }

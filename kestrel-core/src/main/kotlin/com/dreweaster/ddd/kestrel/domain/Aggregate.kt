@@ -7,13 +7,15 @@ import kotlin.reflect.KClass
 
 data class DomainEventTag(val value: String)
 
-interface DomainEvent {
+interface AggregateData
+
+interface DomainEvent: AggregateData {
     val tag: DomainEventTag
 }
 
 interface DomainCommand
 
-interface AggregateState
+interface AggregateState: AggregateData
 
 interface Aggregate<C: DomainCommand, E: DomainEvent, S: AggregateState> {
 

@@ -1,28 +1,28 @@
 package com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user
 
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.UsernameChanged
-import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonEventMappingConfigurationFactory
-import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonEventMappingConfigurer
-import com.github.salomonbrys.kotson.jsonObject
-import com.github.salomonbrys.kotson.string
-import com.google.gson.JsonObject
+import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonMapperBuilderFactory
+import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonMapper
+import com.dreweaster.ddd.kestrel.util.json.jsonObject
+import com.dreweaster.ddd.kestrel.util.json.string
+import com.fasterxml.jackson.databind.node.ObjectNode
 
-object UsernameChangedMapper : JsonEventMappingConfigurer<UsernameChanged> {
+object UsernameChangedMapper : JsonMapper<UsernameChanged> {
 
-    val serialiser: (UsernameChanged) -> JsonObject = { event ->
+    val serialiser: (UsernameChanged) -> ObjectNode = { event ->
         jsonObject(
             "username" to event.username
         )
     }
 
-    val deserialiser: (JsonObject) -> UsernameChanged = { node ->
+    val deserialiser: (ObjectNode) -> UsernameChanged = { node ->
         UsernameChanged(
             username = node["username"].string
         )
     }
 
-    override fun configure(configurationFactory: JsonEventMappingConfigurationFactory<UsernameChanged>) {
-        configurationFactory.create(UsernameChanged::class.qualifiedName!!)
+    override fun configure(factory: JsonMapperBuilderFactory<UsernameChanged>) {
+        factory.create(UsernameChanged::class.qualifiedName!!)
             .mappingFunctions(serialiser, deserialiser)
     }
 }

@@ -2,6 +2,7 @@ package com.dreweaster.ddd.kestrel.application
 
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import reactor.core.publisher.Mono
+import java.lang.RuntimeException
 import kotlin.reflect.KClass
 
 interface BoundedContextName { val name: String }

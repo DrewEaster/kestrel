@@ -1,6 +1,7 @@
 package com.dreweaster.ddd.kestrel.application
 
 import com.dreweaster.ddd.kestrel.domain.Aggregate
+import com.dreweaster.ddd.kestrel.domain.AggregateData
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
 import reactor.core.publisher.Flux
@@ -72,10 +73,10 @@ data class FeedEvent(
         val correlationId: CorrelationId?,
         val eventType: String,
         val eventTag: DomainEventTag,
+        val eventVersion: Int,
         val timestamp: Instant,
         val sequenceNumber: Long,
-        val serialisedPayload: String,
-        val payloadContentType: SerialisationContentType)
+        val serialisedPayload: String)
 
 enum class SerialisationContentType(private val value: String) {
 
@@ -86,14 +87,14 @@ enum class SerialisationContentType(private val value: String) {
     }
 }
 
-interface EventPayloadMapper {
+interface AggregateDataMappingContext {
 
-    fun <E : DomainEvent> deserialiseEvent(serialisedPayload: String, serialisedEventType: String, serialisedEventVersion: Int): E
+    fun <Data : AggregateData> deserialise(serialisedPayload: String, serialisedType: String, serialisedVersion: Int): Data
 
-    fun <E : DomainEvent> serialiseEvent(event: E): PayloadSerialisationResult
+    fun <Data: AggregateData> serialise(data: Data): AggregateDataSerialisationResult
 }
 
-data class PayloadSerialisationResult(val payload: String, val contentType: SerialisationContentType, val version: Int)
+data class AggregateDataSerialisationResult(val payload: String, val contentType: SerialisationContentType, val version: Int)
 
 open class MappingException : RuntimeException {
 
