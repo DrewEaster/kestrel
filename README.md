@@ -4,13 +4,11 @@ Simple DDD toolkit for Kotlin
 TODO
 ====
 
-* Drop implicit migration of event payloads in http event sources - introduce versioning into consumers (with errors where appropriate)
-    * Specific exception when unable to find deserializer for class type and version - should stall consumer progress
 * Implement example using Micronaut framework
     * Switch to using POJO objects for request/response body bindings and register custom Jackson JsonSerializers/JsonDeserializers to maintain clean architecture without POJO annotations (especially useful when POJOs are defined in service layer)
+    * Good error handling
 * Complete the reactive refactor
     * Testing different failure scenarios
-* Improve error handling example HTTP handlers
 * General testing
     * HTTP event sources
     * Database backend
@@ -20,6 +18,10 @@ TODO
 * Support for dry run command handling (i.e. handle command but don't persist events)
 * Support for automatic snapshotting of event sourced entities (with JSON payload mapper functionality)
 * Utilise Reactor metrics to gather useful metrics 
+* Simple non-event sourced aggregate support
+    * Simple command handling (no behaviours)
+    * State serialisation (Object -> DB). ORM...
+    * Optional event generation
 * Stateful process manager support
 * Type-safe SQL string builder
 * Kestrel application bootstrap module (e.g. KestrelRdbmsApplication)
@@ -30,3 +32,4 @@ TODO
 * Create CLI toolbelt for auto generation of skeleton code
 * Document need for adequate indexes on domain_event table
 * Websocket events subscriptions and streams - abstract difference between fetching straight from backend store or via external stream (kafka/kinesis)
+    * Transparent leader election to prevent multiple subscriptions receiving duplicates
