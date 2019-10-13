@@ -8,5 +8,5 @@ interface UserReadModel {
 
     fun findAllUsers(): Mono<List<UserDTO>>
 
-    fun findUserById(id: String): Mono<UserDTO?>
+    fun findUserById(id: String): Mono<UserDTO>
 }

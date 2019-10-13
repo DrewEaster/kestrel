@@ -24,13 +24,20 @@ class EventSourcedDomainModel(
             private val aggregateType: Aggregate<C,E,S>,
             private val aggregateId: AggregateId) : AggregateRoot<C, E, S> {
 
+        override fun currentState(): Mono<S> {
+            val recoverableAggregate = RecoverableAggregate(aggregateId, aggregateType, commandDeduplicationStrategyFactory.newBuilder())
+            return backend.loadEvents(aggregateType, aggregateId)
+                .reduce(recoverableAggregate) { aggregate, evt -> aggregate.apply(evt)}
+                .map { it.state }
+        }
+
         override fun handleCommandEnvelope(commandEnvelope: CommandEnvelope<C>): Mono<CommandHandlingResult<C, E, S>> {
             val recoverableAggregate = RecoverableAggregate(aggregateId, aggregateType, commandDeduplicationStrategyFactory.newBuilder())
             return backend.loadEvents(aggregateType, aggregateId)
                 .reduce(recoverableAggregate) { aggregate, evt -> aggregate.apply(evt)}
                 .flatMap { applyCommand(commandEnvelope, it) }
                 .flatMap { if(commandEnvelope.dryRun) Mono.just(it.second) else persistEvents(it.first, it.second) }
-                .onErrorResume(errorHandler(commandEnvelope))
+                .onErrorResume(errorHandler(commandEnvelope, recoverableAggregate))
         }
 
         private fun persistEvents(aggregate: RecoverableAggregate<C, E, S>, result: CommandHandlingResult<C, E, S>): Mono<out CommandHandlingResult<C, E, S>> {
@@ -55,7 +62,7 @@ class EventSourcedDomainModel(
 
         private fun applyEdenCommand(aggregate: RecoverableAggregate<C, E, S>, commandEnvelope: CommandEnvelope<C>): Mono<Pair<RecoverableAggregate<C, E, S>, CommandHandlingResult<C, E, S>>>{
             if(!aggregateType.blueprint.edenCommandHandler.canHandle(commandEnvelope.command)) {
-                val rejectionResult = RejectionResult(aggregateId, aggregateType, commandEnvelope, UnsupportedCommandInEdenBehaviour)
+                val rejectionResult = RejectionResult(aggregateId, aggregateType, commandEnvelope, aggregate.state, UnsupportedCommandInEdenBehaviour)
                 return Mono.just(aggregate to (rejectionResult as CommandHandlingResult<C, E, S>))
             }
 
@@ -71,7 +78,7 @@ class EventSourcedDomainModel(
                 // TODO: If command was handled before but was rejected would be good to return the same rejection here
                 // TODO: Would require storing special RejectionEvents in the aggregate's event history
                 val generatedEvents = aggregate.previousEvents.filter { it.causationId.value == commandEnvelope.commandId.value }.map { it.rawEvent }
-                val result = SuccessResult(aggregateId, aggregateType, commandEnvelope, generatedEvents, deduplicated = true)
+                val result = SuccessResult(aggregateId, aggregateType, commandEnvelope, aggregate.state, generatedEvents, deduplicated = true)
                 return Mono.just(aggregate to (result as CommandHandlingResult<C, E, S>))
             } else {
                 if(aggregateType.blueprint.edenCommandHandler.canHandle(commandEnvelope.command)) {
@@ -97,16 +104,17 @@ class EventSourcedDomainModel(
             return when(result) {
                 is Try.Success -> {
                     val generatedEvents = result.get()
-                    Mono.just(aggregate to SuccessResult(aggregateId, aggregateType, commandEnvelope, generatedEvents)) as  Mono<Pair<RecoverableAggregate<C, E, S>, CommandHandlingResult<C, E, S>>>
+                    val updatedState = generatedEvents.fold(aggregate.state) { acc, evt -> if(acc != null) aggregateType.blueprint.eventHandler(acc, evt) else aggregateType.blueprint.edenEventHandler(evt) }
+                    Mono.just(aggregate to SuccessResult(aggregateId, aggregateType, commandEnvelope, updatedState, generatedEvents)) as  Mono<Pair<RecoverableAggregate<C, E, S>, CommandHandlingResult<C, E, S>>>
                 }
-                else -> Mono.just(aggregate to RejectionResult<C, E, S>(aggregateId, aggregateType, commandEnvelope, result.cause)) as Mono<Pair<RecoverableAggregate<C, E, S>, CommandHandlingResult<C, E, S>>>
+                else -> Mono.just(aggregate to RejectionResult<C, E, S>(aggregateId, aggregateType, commandEnvelope, aggregate.state, result.cause)) as Mono<Pair<RecoverableAggregate<C, E, S>, CommandHandlingResult<C, E, S>>>
             }
         }
 
-        private fun errorHandler(commandEnvelope: CommandEnvelope<C>): (Throwable) -> Mono<CommandHandlingResult<C, E, S>> = { ex ->
+        private fun errorHandler(commandEnvelope: CommandEnvelope<C>, aggregate: RecoverableAggregate<C, E, S>): (Throwable) -> Mono<CommandHandlingResult<C, E, S>> = { ex ->
             when(ex) {
-                is OptimisticConcurrencyException -> Mono.just(ConcurrentModificationResult(aggregateId, aggregateType, commandEnvelope))
-                else -> Mono.just(UnexpectedExceptionResult(aggregateId, aggregateType, commandEnvelope, ex))
+                is OptimisticConcurrencyException -> Mono.just(ConcurrentModificationResult(aggregateId, aggregateType, commandEnvelope, aggregate.state))
+                else -> Mono.just(UnexpectedExceptionResult(aggregateId, aggregateType, commandEnvelope, aggregate.state, ex))
             }
         }
     }

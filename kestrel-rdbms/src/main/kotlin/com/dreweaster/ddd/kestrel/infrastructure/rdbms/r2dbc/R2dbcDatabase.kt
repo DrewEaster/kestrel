@@ -89,7 +89,10 @@ class R2dbcDatabaseHandle(private val handle: Handle): DatabaseContext {
                     is NullValue -> query.bindNull(column, value.type.java)
                     else -> query.bind(column, value)
                 }}
-                query.add().mapResult { result -> Flux.from(result.map { row, rowMetadata -> mapper(R2dbcResultRow(row)) }).switchIfEmpty(Flux.empty())}
+                query.add().mapResult { result ->
+                    val mapped = result.map { row, _ -> mapper(R2dbcResultRow(row)) }
+                    Flux.from(mapped).switchIfEmpty(Flux.empty())
+                }
             }
         }
     }
@@ -142,7 +145,7 @@ class R2dbcDatabaseHandle(private val handle: Handle): DatabaseContext {
             val paramIndexes = (indexMap[paramName] ?: emptyList()) + (index + 1)
             val transformedParameterName = "$${index + 1}"
             val replaceRegEx = Regex("(:\\b$paramName\\b)")
-            val newSql = transformedSql.replace(replaceRegEx, escapeReplacement(transformedParameterName))
+            val newSql = transformedSql.replaceFirst(replaceRegEx, escapeReplacement(transformedParameterName))
             newSql to (indexMap + (paramName to paramIndexes))
         }
     }
@@ -154,7 +157,7 @@ class R2dbcDatabaseHandle(private val handle: Handle): DatabaseContext {
             val transformedParameterName = "$${index + 1}"
             val parameterValue = expandedParams[name]
             val replaceRegEx = Regex("(:\\b$name\\b)")
-            val newSql = transformedSql.replace(replaceRegEx, escapeReplacement(transformedParameterName))
+            val newSql = transformedSql.replaceFirst(replaceRegEx, escapeReplacement(transformedParameterName))
             newSql to (transformedParams + (transformedParameterName to paramValueMapper(parameterValue!!)))
         }
     }

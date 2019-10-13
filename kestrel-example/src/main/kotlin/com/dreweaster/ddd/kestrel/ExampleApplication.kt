@@ -5,8 +5,7 @@ import com.dreweaster.ddd.kestrel.application.processmanager.stateless.HelloNewU
 import com.dreweaster.ddd.kestrel.application.processmanager.stateless.WarnUserLocked
 import com.dreweaster.ddd.kestrel.application.readmodel.user.UserDTO
 import com.dreweaster.ddd.kestrel.domain.AggregateData
-import com.dreweaster.ddd.kestrel.domain.aggregates.user.RegisterUser
-import com.dreweaster.ddd.kestrel.domain.aggregates.user.User
+import com.dreweaster.ddd.kestrel.domain.aggregates.user.*
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.backend.PostgresBackend
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.r2dbc.R2dbcDatabase
 import com.dreweaster.ddd.kestrel.infrastructure.cluster.LocalCluster
@@ -130,7 +129,20 @@ object Application {
                         ) { id -> jsonObject("id" to id.value)} // TODO: Error handling
                     }
                     .get("/users/{id}") { request, response ->
-                        response.sendObjectAsJson(userReadModel.findUserById(request.param("id")!!).map { it!! }, userToJsonObject)
+                        response.sendObjectAsJson(domainModel.aggregateRootOf(User, AggregateId(request.param("id")!!)).currentState() as Mono<UserState?>) { state ->
+                            when(state) {
+                                is ActiveUser -> jsonObject("username" to state.username)
+                                is LockedUser -> jsonObject("username" to state.username)
+                            }
+                        }
+                    }
+                    .post("/users/{id}/login-attempts") { request, response ->
+                        response.sendObjectAsJson(
+                            request.receiveJsonObject(LoginRequest.mapper).flatMap { loginRequest ->
+                                val user = domainModel.aggregateRootOf(User, AggregateId(request.param("id")!!))
+                                user.handleCommand(Login(loginRequest.password))
+                            }.flatMap { result -> Mono.just(result.aggregateId) }
+                        ) { id -> jsonObject("id" to id.value)} // TODO: Error handling
                     }
             }.bindNow()
 
@@ -205,6 +217,15 @@ data class RegisterUserRequest(val id: AggregateId, val username: String, val pa
             val username = jsonObject["username"].string
             val password = jsonObject["password"].string
             RegisterUserRequest(AggregateId(IdGenerator.randomId()), username, password)
+        }
+    }
+}
+
+data class LoginRequest(val password: String) {
+    companion object {
+        val mapper: (ObjectNode) -> LoginRequest = { jsonObject ->
+            val password = jsonObject["password"].string
+            LoginRequest(password)
         }
     }
 }

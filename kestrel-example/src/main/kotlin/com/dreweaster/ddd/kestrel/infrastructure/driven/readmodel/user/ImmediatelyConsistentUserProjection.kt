@@ -8,6 +8,7 @@ import com.dreweaster.ddd.kestrel.infrastructure.rdbms.Database
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.ResultRow
 
 import reactor.core.publisher.Mono
+import reactor.core.publisher.toMono
 
 class ImmediatelyConsistentUserProjection constructor(private val database: Database): ConsistentDatabaseProjection(), UserReadModel {
 
@@ -64,7 +65,7 @@ class ImmediatelyConsistentUserProjection constructor(private val database: Data
         tx.select("SELECT * from usr") { userDtoMapper(it) }
     }.collectList()
 
-    override fun findUserById(id: String): Mono<UserDTO?> = database.withContext { tx ->
+    override fun findUserById(id: String): Mono<UserDTO> = database.withContext { tx ->
         tx.select("SELECT * from usr where id = :id", "id" to id) { userDtoMapper(it) }
-    }.collectList().map { it.firstOrNull() }
+    }.toMono()
 }

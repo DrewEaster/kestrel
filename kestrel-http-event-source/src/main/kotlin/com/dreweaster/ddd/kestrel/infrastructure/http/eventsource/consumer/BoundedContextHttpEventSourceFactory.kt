@@ -8,13 +8,6 @@ import com.dreweaster.ddd.kestrel.application.offset.OffsetTracker
 import reactor.netty.http.client.HttpClient
 import kotlin.reflect.KClass
 
-/*
-    TODO: Introduce event versioning support that allows events of different versions to be targeted differently.
-    This would be based on premise that a bounded context no longer automatically migrates events that it returns
-    from its event log streams. It would move responsibility for event migration to event consumers. Thus, it would
-    be necessary for the stream source factories to allow registering different mappers for different versions of
-    the same canonical event types.
- */
 abstract class BoundedContextHttpEventSourceFactory(val name: BoundedContextName) {
 
     protected abstract val deserialisers: EventDeserializers

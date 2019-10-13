@@ -27,16 +27,16 @@ class ClusterAwareScheduler(private val cluster: Cluster): Scheduler {
         val jobScheduler = Schedulers.fromExecutor(Executors.newSingleThreadExecutor())
         jobSchedulers.add(jobScheduler)
 
-        jobs.add(Mono.from(ClusterSingletonJobWrapper(job).execute())
+        jobs.add(from(ClusterSingletonJobWrapper(job).execute())
             .publishOn(jobScheduler)
             .subscribeOn(jobScheduler)
             .timeout(timeout)
             .flatMap { rescheduleImmediately ->
                 LOG.info("Job execution succeeded : '${job.name}'")
-                Mono.delay(if(rescheduleImmediately) Duration.ZERO else repeatSchedule) }
+                delay(if(rescheduleImmediately) Duration.ZERO else repeatSchedule) }
             .onErrorResume {
                 LOG.error("Job execution failed: '${job.name}'", it)
-                Mono.delay(repeatSchedule)
+                delay(repeatSchedule)
             }
             .repeat()
             .subscribe(

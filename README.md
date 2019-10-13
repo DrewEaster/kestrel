@@ -5,7 +5,6 @@ TODO
 ====
 
 * Implement example using Micronaut framework
-    * Switch to using POJO objects for request/response body bindings and register custom Jackson JsonSerializers/JsonDeserializers to maintain clean architecture without POJO annotations (especially useful when POJOs are defined in service layer)
     * Good error handling
 * Complete the reactive refactor
     * Testing different failure scenarios
