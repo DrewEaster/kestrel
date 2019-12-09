@@ -20,6 +20,7 @@ interface ResultColumn {
     val zonedDateTime: ZonedDateTime
     val instant: Instant
     val uuid: UUID
+    val stringArray: Array<String>
 
     val stringOrNull: String?
     val intOrNull: Int?

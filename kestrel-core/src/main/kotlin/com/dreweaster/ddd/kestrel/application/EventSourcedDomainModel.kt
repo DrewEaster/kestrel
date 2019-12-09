@@ -7,12 +7,16 @@ import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import io.vavr.control.Try
 import reactor.core.publisher.Mono
 
-/**
- * TODO: Re-enable DomainModelReporter integration
- */
+interface EventSourcingConfiguration {
+
+    fun <E : DomainEvent, S: AggregateState, A: Aggregate<*, E, S>> commandDeduplicationThresholdFor(aggregateType: Aggregate<*, E, S>): Int
+
+    fun <E : DomainEvent, S: AggregateState, A: Aggregate<*, E, S>> snapshotThresholdFor(aggregateType: Aggregate<*, E, S>): Int
+}
+
 class EventSourcedDomainModel(
         private val backend: Backend,
-        private val commandDeduplicationStrategyFactory: CommandDeduplicationStrategyFactory) : DomainModel {
+        private val eventSourcingConfiguration: EventSourcingConfiguration) : DomainModel {
 
     override fun <C : DomainCommand, E : DomainEvent, S : AggregateState> aggregateRootOf(
             aggregateType: Aggregate<C, E, S>,
@@ -25,30 +29,40 @@ class EventSourcedDomainModel(
             private val aggregateId: AggregateId) : AggregateRoot<C, E, S> {
 
         override fun currentState(): Mono<S> {
-            val recoverableAggregate = RecoverableAggregate(aggregateId, aggregateType, commandDeduplicationStrategyFactory.newBuilder())
-            return backend.loadEvents(aggregateType, aggregateId)
-                .reduce(recoverableAggregate) { aggregate, evt -> aggregate.apply(evt)}
-                .map { it.state }
+            return recoverAggregate().map { it.recoveredState }
         }
 
         override fun handleCommandEnvelope(commandEnvelope: CommandEnvelope<C>): Mono<CommandHandlingResult<C, E, S>> {
-            val recoverableAggregate = RecoverableAggregate(aggregateId, aggregateType, commandDeduplicationStrategyFactory.newBuilder())
-            return backend.loadEvents(aggregateType, aggregateId)
-                .reduce(recoverableAggregate) { aggregate, evt -> aggregate.apply(evt)}
-                .flatMap { applyCommand(commandEnvelope, it) }
-                .flatMap { if(commandEnvelope.dryRun) Mono.just(it.second) else persistEvents(it.first, it.second) }
-                .onErrorResume(errorHandler(commandEnvelope, recoverableAggregate))
+            return recoverAggregate().flatMap { recoverableAggregate ->
+                applyCommand(commandEnvelope, recoverableAggregate)
+                    .flatMap { if(commandEnvelope.dryRun) Mono.just(it.second) else persistEvents(it.first, it.second) }
+                    .onErrorResume(errorHandler(commandEnvelope, recoverableAggregate))
+            }.onErrorResume { Mono.just(UnexpectedExceptionResult(aggregateId, aggregateType, commandEnvelope, null, it)) }
+        }
+
+        private fun recoverAggregate(): Mono<RecoverableAggregate<C, E, S>> {
+            return backend.loadSnapshot(aggregateType, aggregateId).defaultIfEmpty(Snapshot(-1, null, emptyList())).flatMap { snapshot ->
+                backend.loadEvents(aggregateType, aggregateId, snapshot.version)
+                    .reduce(RecoverableAggregate(
+                        aggregateId = aggregateId,
+                        aggregateType =  aggregateType,
+                        recoveredSnapshot = snapshot,
+                        commandDeduplicationThreshold = eventSourcingConfiguration.commandDeduplicationThresholdFor(aggregateType),
+                        snapshotThreshold = eventSourcingConfiguration.snapshotThresholdFor(aggregateType)
+                    )) { aggregate, evt -> aggregate.apply(evt) }
+            }
         }
 
         private fun persistEvents(aggregate: RecoverableAggregate<C, E, S>, result: CommandHandlingResult<C, E, S>): Mono<out CommandHandlingResult<C, E, S>> {
             return if(result is SuccessResult && result.generatedEvents.isNotEmpty()) {
                 backend.saveEvents(
-                    aggregateType,
-                    aggregateId,
-                    CausationId(result.command.commandId.value),
-                    result.generatedEvents,
-                    aggregate.version,
-                    result.command.correlationId
+                    aggregateType = aggregateType,
+                    aggregateId = aggregateId,
+                    causationId = CausationId(result.command.commandId.value),
+                    rawEvents = result.generatedEvents,
+                    expectedSequenceNumber = aggregate.recoveredVersion,
+                    correlationId = result.command.correlationId,
+                    snapshot = aggregate.maybeCreateSnapshot()
                 ).then(Mono.just(result))
             } else Mono.just(result)
         }
@@ -62,7 +76,7 @@ class EventSourcedDomainModel(
 
         private fun applyEdenCommand(aggregate: RecoverableAggregate<C, E, S>, commandEnvelope: CommandEnvelope<C>): Mono<Pair<RecoverableAggregate<C, E, S>, CommandHandlingResult<C, E, S>>>{
             if(!aggregateType.blueprint.edenCommandHandler.canHandle(commandEnvelope.command)) {
-                val rejectionResult = RejectionResult(aggregateId, aggregateType, commandEnvelope, aggregate.state, UnsupportedCommandInEdenBehaviour)
+                val rejectionResult = RejectionResult(aggregateId, aggregateType, commandEnvelope, aggregate.recoveredState, UnsupportedCommandInEdenBehaviour)
                 return Mono.just(aggregate to (rejectionResult as CommandHandlingResult<C, E, S>))
             }
 
@@ -77,8 +91,9 @@ class EventSourcedDomainModel(
             if(aggregate.hasHandledCommandBefore(commandEnvelope.commandId)) {
                 // TODO: If command was handled before but was rejected would be good to return the same rejection here
                 // TODO: Would require storing special RejectionEvents in the aggregate's event history
-                val generatedEvents = aggregate.previousEvents.filter { it.causationId.value == commandEnvelope.commandId.value }.map { it.rawEvent }
-                val result = SuccessResult(aggregateId, aggregateType, commandEnvelope, aggregate.state, generatedEvents, deduplicated = true)
+                // TODO: Would need to apply all events up to most recent event produced by command, and then determine state by applying generated events properly
+                val generatedEvents = aggregate.eventHistory.filter { it.causationId.value == commandEnvelope.commandId.value }.map { it.rawEvent }
+                val result = SuccessResult(aggregateId, aggregateType, commandEnvelope, null, generatedEvents, deduplicated = true) // FIXME: return correct state
                 return Mono.just(aggregate to (result as CommandHandlingResult<C, E, S>))
             } else {
                 if(aggregateType.blueprint.edenCommandHandler.canHandle(commandEnvelope.command)) {
@@ -88,14 +103,14 @@ class EventSourcedDomainModel(
                     }
                 }
 
-                if(!aggregateType.blueprint.commandHandler.canHandle(aggregate.state!!, commandEnvelope.command)) {
+                if(!aggregateType.blueprint.commandHandler.canHandle(aggregate.recoveredState!!, commandEnvelope.command)) {
                     return Mono.error(UnsupportedCommandInCurrentBehaviour)
                 }
 
                 return translateCommandApplicationResult(
                     aggregate,
                     commandEnvelope,
-                    aggregateType.blueprint.commandHandler(aggregate.state, commandEnvelope.command)
+                    aggregateType.blueprint.commandHandler(aggregate.recoveredState, commandEnvelope.command)
                 )
             }
         }
@@ -104,17 +119,18 @@ class EventSourcedDomainModel(
             return when(result) {
                 is Try.Success -> {
                     val generatedEvents = result.get()
-                    val updatedState = generatedEvents.fold(aggregate.state) { acc, evt -> if(acc != null) aggregateType.blueprint.eventHandler(acc, evt) else aggregateType.blueprint.edenEventHandler(evt) }
+                    // TODO: Handle UnsupportedEventInCurrentBehaviour correctly
+                    val updatedState = generatedEvents.fold(aggregate.recoveredState) { acc, evt -> if(acc != null) aggregateType.blueprint.eventHandler(acc, evt) else aggregateType.blueprint.edenEventHandler(evt) }
                     Mono.just(aggregate to SuccessResult(aggregateId, aggregateType, commandEnvelope, updatedState, generatedEvents)) as  Mono<Pair<RecoverableAggregate<C, E, S>, CommandHandlingResult<C, E, S>>>
                 }
-                else -> Mono.just(aggregate to RejectionResult<C, E, S>(aggregateId, aggregateType, commandEnvelope, aggregate.state, result.cause)) as Mono<Pair<RecoverableAggregate<C, E, S>, CommandHandlingResult<C, E, S>>>
+                else -> Mono.just(aggregate to RejectionResult<C, E, S>(aggregateId, aggregateType, commandEnvelope, aggregate.recoveredState, result.cause)) as Mono<Pair<RecoverableAggregate<C, E, S>, CommandHandlingResult<C, E, S>>>
             }
         }
 
         private fun errorHandler(commandEnvelope: CommandEnvelope<C>, aggregate: RecoverableAggregate<C, E, S>): (Throwable) -> Mono<CommandHandlingResult<C, E, S>> = { ex ->
             when(ex) {
-                is OptimisticConcurrencyException -> Mono.just(ConcurrentModificationResult(aggregateId, aggregateType, commandEnvelope, aggregate.state))
-                else -> Mono.just(UnexpectedExceptionResult(aggregateId, aggregateType, commandEnvelope, aggregate.state, ex))
+                is OptimisticConcurrencyException -> Mono.just(ConcurrentModificationResult(aggregateId, aggregateType, commandEnvelope, aggregate.recoveredState))
+                else -> Mono.just(UnexpectedExceptionResult(aggregateId, aggregateType, commandEnvelope, aggregate.recoveredState, ex))
             }
         }
     }
@@ -123,19 +139,32 @@ class EventSourcedDomainModel(
 data class RecoverableAggregate<C: DomainCommand, E: DomainEvent, S: AggregateState>(
     val aggregateId: AggregateId,
     val aggregateType: Aggregate<C, E, S>,
-    val builder: CommandDeduplicationStrategyBuilder,
-    val version: Long = -1,
-    val previousEvents: List<PersistedEvent<E>> = emptyList(),
-    val state: S? = null
+    val snapshotThreshold: Int,
+    val commandDeduplicationThreshold: Int,
+    val eventHistory: List<PersistedEvent<E>> = emptyList(),
+    val recoveredSnapshot: Snapshot<S>,
+    val recoveredVersion: Long = recoveredSnapshot.version,
+    val causationIdHistory: List<CausationId> = recoveredSnapshot.causationIdHistory,
+    val recoveredState: S? = recoveredSnapshot.state
 ) {
-    val isNew = previousEvents.isEmpty()
+    val isNew = eventHistory.isEmpty()
 
     fun apply(evt: PersistedEvent<E>) = copy(
-        version = evt.sequenceNumber,
-        previousEvents = previousEvents + evt,
-        state = if(state != null) aggregateType.blueprint.eventHandler(state, evt.rawEvent) else aggregateType.blueprint.edenEventHandler(evt.rawEvent),
-        builder = builder.addEvent(evt)
+        recoveredVersion = evt.sequenceNumber,
+        eventHistory = eventHistory + evt,
+        causationIdHistory = causationIdHistory + evt.causationId,
+        recoveredState = if(recoveredState != null) aggregateType.blueprint.eventHandler(recoveredState, evt.rawEvent) else aggregateType.blueprint.edenEventHandler(evt.rawEvent)
     )
 
-    fun hasHandledCommandBefore(commandId: CommandId) = builder.build().isDuplicate(commandId = commandId)
+    fun hasHandledCommandBefore(commandId: CommandId) = causationIdHistory.takeLast(commandDeduplicationThreshold).contains(CausationId(commandId.value))
+
+    // Create snapshot based on aggregate as it was recovered, not based on its state post command handling
+    fun maybeCreateSnapshot(): Snapshot<S>? {
+        return if(recoveredState != null && eventHistory.size >= snapshotThreshold) {
+            return Snapshot(
+                state = recoveredState,
+                version = recoveredVersion,
+                causationIdHistory = causationIdHistory.takeLast(commandDeduplicationThreshold))
+        } else null
+    }
 }

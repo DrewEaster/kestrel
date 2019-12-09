@@ -1,6 +1,7 @@
 package com.dreweaster.ddd.kestrel.application
 
 import com.dreweaster.ddd.kestrel.domain.Aggregate
+import com.dreweaster.ddd.kestrel.domain.AggregateState
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.*
 import com.dreweaster.ddd.kestrel.infrastructure.InMemoryBackend
@@ -15,9 +16,9 @@ class EventsourcedDomainModelTests : WordSpec() {
 
     val backend = MockBackend()
 
-    val deduplicationStrategyFactory = SwitchableDeduplicationStrategyFactory()
+    val eventSourcingConfiguration = SwitchableEventSourcingConfiguration()
 
-    val domainModel = EventSourcedDomainModel(backend, deduplicationStrategyFactory)
+    val domainModel = EventSourcedDomainModel(backend, eventSourcingConfiguration)
 
     override val oneInstancePerTest = true
 
@@ -26,7 +27,8 @@ class EventsourcedDomainModelTests : WordSpec() {
         backend.toggleLoadErrorStateOff()
         backend.toggleSaveErrorStateOff()
         backend.toggleOffOptimisticConcurrencyExceptionOnSave()
-        deduplicationStrategyFactory.toggleDeduplicationOn()
+        eventSourcingConfiguration.toggleDeduplicationOn()
+        eventSourcingConfiguration.resetSnapshotThreshold()
 
         "An AggregateRoot" should {
             "be createable for the first time" {
@@ -144,8 +146,7 @@ class EventsourcedDomainModelTests : WordSpec() {
                 user.handleCommand(Login(password = "wrongpassword")).block()
 
                 // When
-                user.handleCommand(UnlockUser).block()
-                val result = user.handleCommand(Login(password = "wrongpassword")).block()
+                val result = user.handleCommand(UnlockUser).block()
 
                 // Then
                 (result as UnexpectedExceptionResult).ex shouldBe instanceOf(UnsupportedEventInCurrentBehaviour::class)
@@ -189,7 +190,7 @@ class EventsourcedDomainModelTests : WordSpec() {
 
             "allow a duplicate command if the deduplication strategy says it's ok to allow it" {
                 // Given
-                deduplicationStrategyFactory.toggleDeduplicationOff()
+                eventSourcingConfiguration.toggleDeduplicationOff()
                 val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
                 user.handleCommand(RegisterUser(username = "joebloggs", password = "password")).block()
 
@@ -215,13 +216,48 @@ class EventsourcedDomainModelTests : WordSpec() {
                 // Then
                 (result as UnexpectedExceptionResult).ex shouldBe instanceOf(AggregateInstanceAlreadyExists::class)
             }
+
+            "create a snapshot and successful restore from that snapshot" {
+                // Given
+                eventSourcingConfiguration.setSnapshotThreshold(4)
+                val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
+                user.handleCommand(RegisterUser(username = "joebloggs", password = "password")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword1")).block()
+                user.handleCommand(ChangeUsername(username = "changedUsername1")).block()
+                user.handleCommand(Login(password = "wrongpassword")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword2")).block()
+
+                // When
+
+                // Clearing events covered by the snapshot
+                backend.clearEvents { it.second < 4 }
+
+                // And processing further events
+                user.handleCommand(ChangePassword(password = "changedPassword3")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword4")).block()
+
+                // And fetching the current state of the user
+                val userState = user.currentState().block()
+
+                // Then
+
+                // The snapshot should have been persisted at version 3
+                backend.loadSnapshot(User, AggregateId("some-aggregate-id")).block()!!.version shouldBe 3L
+
+                // And the user state should be as expected
+                (userState as ActiveUser).username shouldBe "changedUsername1"
+                userState.password shouldBe "changedPassword4"
+                userState.failedLoginAttempts shouldBe 1
+            }
         }
     }
 }
 
-class SwitchableDeduplicationStrategyFactory : CommandDeduplicationStrategyFactory {
+class SwitchableEventSourcingConfiguration : EventSourcingConfiguration {
 
     private var deduplicationEnabled = true
+
+    private var snapshotThreshold: Int = Int.MAX_VALUE
 
     fun toggleDeduplicationOn() {
         deduplicationEnabled = true
@@ -231,21 +267,24 @@ class SwitchableDeduplicationStrategyFactory : CommandDeduplicationStrategyFacto
         deduplicationEnabled = false
     }
 
-    override fun newBuilder(): CommandDeduplicationStrategyBuilder =
-        object : CommandDeduplicationStrategyBuilder {
-            private var causationIds: Set<CausationId> = emptySet()
+    fun setSnapshotThreshold(snapshotThreshold: Int) {
+        this.snapshotThreshold = snapshotThreshold
 
-            override fun addEvent(domainEvent: PersistedEvent<*>): CommandDeduplicationStrategyBuilder {
-                causationIds += domainEvent.causationId
-                return this
-            }
+    }
+    fun resetSnapshotThreshold() {
+        snapshotThreshold = Int.MAX_VALUE
+    }
 
-            override fun build(): CommandDeduplicationStrategy =
-                object : CommandDeduplicationStrategy {
-                    override fun isDuplicate(commandId: CommandId) =
-                        if (deduplicationEnabled) causationIds.contains(CausationId(commandId.value)) else false
-                }
+    override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> commandDeduplicationThresholdFor(aggregateType: Aggregate<*, E, S>): Int {
+        return when(deduplicationEnabled) {
+            true -> Int.MAX_VALUE
+            false -> 0
         }
+    }
+
+    override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> snapshotThresholdFor(aggregateType: Aggregate<*, E, S>): Int {
+        return snapshotThreshold
+    }
 }
 
 class MockBackend : InMemoryBackend() {
@@ -287,11 +326,18 @@ class MockBackend : InMemoryBackend() {
         return super.loadEvents(aggregateType, aggregateId)
     }
 
-    override fun <E : DomainEvent, A : Aggregate<*, E, *>> saveEvents(aggregateType: A, aggregateId: AggregateId, causationId: CausationId, rawEvents: List<E>, expectedSequenceNumber: Long, correlationId: CorrelationId?): Flux<PersistedEvent<E>> {
+    override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId, afterSequenceNumber: Long): Flux<PersistedEvent<E>> {
+        if (loadErrorState) {
+            return Flux.error(IllegalStateException())
+        }
+        return super.loadEvents(aggregateType, aggregateId, afterSequenceNumber)
+    }
+
+    override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> saveEvents(aggregateType: A, aggregateId: AggregateId, causationId: CausationId, rawEvents: List<E>, expectedSequenceNumber: Long, correlationId: CorrelationId?, snapshot: Snapshot<S>?): Flux<PersistedEvent<E>> {
         return when {
             optimisticConcurrencyExceptionOnSave -> Flux.error(OptimisticConcurrencyException)
             saveErrorState -> Flux.error(IllegalStateException())
-            else -> super.saveEvents(aggregateType, aggregateId, causationId, rawEvents, expectedSequenceNumber, correlationId)
+            else -> super.saveEvents(aggregateType, aggregateId, causationId, rawEvents, expectedSequenceNumber, correlationId, snapshot)
         }
     }
 }

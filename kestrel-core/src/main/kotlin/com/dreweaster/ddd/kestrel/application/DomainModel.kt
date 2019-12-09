@@ -11,11 +11,11 @@ object IdGenerator {
     fun randomId(): String = UUID.randomUUID().toString().replace("-","")
 }
 
-data class AggregateId(val value: String = IdGenerator.randomId())
-data class CommandId(val value: String = IdGenerator.randomId())
-data class CausationId(val value: String = IdGenerator.randomId())
-data class CorrelationId(val value: String = IdGenerator.randomId())
-data class EventId(val value: String = IdGenerator.randomId())
+inline class AggregateId(val value: String = IdGenerator.randomId())
+inline class CommandId(val value: String = IdGenerator.randomId())
+inline class CausationId(val value: String = IdGenerator.randomId())
+inline class CorrelationId(val value: String = IdGenerator.randomId())
+inline class EventId(val value: String = IdGenerator.randomId())
 
 sealed class CommandHandlingResult<C: DomainCommand, E: DomainEvent, S: AggregateState>(
         open val aggregateId: AggregateId,

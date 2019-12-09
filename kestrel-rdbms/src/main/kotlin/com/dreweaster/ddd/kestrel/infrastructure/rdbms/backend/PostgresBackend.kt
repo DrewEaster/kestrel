@@ -2,6 +2,7 @@ package com.dreweaster.ddd.kestrel.infrastructure.rdbms.backend
 
 import com.dreweaster.ddd.kestrel.application.*
 import com.dreweaster.ddd.kestrel.domain.Aggregate
+import com.dreweaster.ddd.kestrel.domain.AggregateState
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.ConsistentDatabaseProjection
@@ -10,6 +11,7 @@ import com.dreweaster.ddd.kestrel.infrastructure.rdbms.DatabaseContext
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.ResultRow
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
+import reactor.core.publisher.toMono
 import java.time.Instant
 import kotlin.reflect.KClass
 
@@ -22,7 +24,7 @@ class PostgresBackend(
         """
             SELECT MAX(global_offset) as max_offset
             FROM domain_event
-        """
+        """.trimIndent()
 
     private val loadEventsForAggregateInstanceQueryString =
         """
@@ -39,14 +41,14 @@ class PostgresBackend(
             WHERE tag IN (:tags) AND event_timestamp > :after_timestamp
             ORDER BY global_offset
             LIMIT :limit
-        """
+        """.trimIndent()
 
     private val maxQueryOffsetForEventsForTagsAfterInstantQueryString =
         """
             SELECT MAX(global_offset) as max_offset
             FROM domain_event
             WHERE tag IN (:tags) AND event_timestamp > :after_timestamp
-        """
+        """.trimIndent()
 
     private val loadEventsForTagsAfterOffsetQueryString =
         """
@@ -55,28 +57,51 @@ class PostgresBackend(
             WHERE tag IN (:tags) AND global_offset > :after_offset
             ORDER BY global_offset
             LIMIT :limit
-        """
+        """.trimIndent()
 
     private val maxQueryOffsetForEventsForTagsAfterOffsetQueryString =
         """
             SELECT MAX(global_offset) as max_offset
             FROM domain_event
             WHERE tag IN (:tags) AND global_offset > :after_offset
-        """
+        """.trimIndent()
 
     private val saveEventsQueryString =
         """
             INSERT INTO domain_event(event_id, aggregate_id, aggregate_type, tag, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number)
             VALUES(:event_id, :aggregate_id, :aggregate_type, :tag, :causation_id, :correlation_id, :event_type, :event_version, :event_payload, :event_timestamp, :sequence_number)
-        """
+        """.trimIndent()
 
-    private val saveAggregateQueryString =
+    private val saveAggregateWithoutSnapshotQueryString =
         """
             INSERT INTO aggregate_root (aggregate_id, aggregate_type, aggregate_version)
             VALUES (:aggregate_id, :aggregate_type, :aggregate_version)
             ON CONFLICT ON CONSTRAINT aggregate_root_pkey
             DO UPDATE SET aggregate_version = :aggregate_version WHERE aggregate_root.aggregate_version = :expected_aggregate_version
+        """.trimIndent()
+
+    private val saveAggregateWithSnapshotQueryString =
         """
+            INSERT INTO aggregate_root (aggregate_id, aggregate_type, aggregate_version, snapshot_version, snapshot_payload, snapshot_causation_ids)
+            VALUES (:aggregate_id, :aggregate_type, :aggregate_version, :snapshot_version, :snapshot_payload, :snapshot_causation_ids)
+            ON CONFLICT ON CONSTRAINT aggregate_root_pkey
+            DO UPDATE SET aggregate_version = :aggregate_version, snapshot_version = :snapshot_version, snapshot_payload = :snapshot_payload, snapshot_causation_ids = :snapshot_causation_ids  
+            WHERE aggregate_root.aggregate_version = :expected_aggregate_version
+        """.trimIndent()
+
+    private val loadSnapshotQueryString =
+        """
+            SELECT snapshot_version, snapshot_payload, snapshot_causation_ids
+            FROM aggregate_root
+            WHERE aggregate_id = :aggregate_id AND aggregate_type = :aggregate_type
+        """.trimIndent()
+
+    override fun <S : AggregateState, A : Aggregate<*, *, S>> loadSnapshot(aggregateType: A, aggregateId: AggregateId): Mono<Snapshot<S>> = db.inTransaction { ctx ->
+        ctx.select(loadSnapshotQueryString, rowToSnapshot(aggregateType)) {
+            this["aggregate_id"] = aggregateId.value
+            this["aggregate_type"] = aggregateType.blueprint.name
+        }
+    }.toMono()
 
     override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId) = loadEvents(aggregateType, aggregateId, -1)
 
@@ -88,26 +113,27 @@ class PostgresBackend(
         }
     }
 
-    override fun <E : DomainEvent, A : Aggregate<*, E, *>> saveEvents(
+    override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> saveEvents(
             aggregateType: A,
             aggregateId: AggregateId,
             causationId: CausationId,
             rawEvents: List<E>,
             expectedSequenceNumber: Long,
-            correlationId: CorrelationId?): Flux<PersistedEvent<E>> {
+            correlationId: CorrelationId?,
+            snapshot: Snapshot<S>?): Flux<PersistedEvent<E>> {
 
         val saveableEvents = rawEvents.fold(Pair(expectedSequenceNumber + 1, emptyList<SaveableEvent<E>>())) { acc, e ->
             Pair(acc.first + 1, acc.second + SaveableEvent(
-                    id = EventId(),
-                    aggregateId = aggregateId,
-                    aggregateType = aggregateType,
-                    causationId = causationId,
-                    correlationId = correlationId,
-                    eventType = e::class as KClass<E>,
-                    rawEvent = e,
-                    serialisationResult = mappingContext.serialise(e),
-                    timestamp = Instant.now(),
-                    sequenceNumber = acc.first
+                id = EventId(),
+                aggregateId = aggregateId,
+                aggregateType = aggregateType,
+                causationId = causationId,
+                correlationId = correlationId,
+                eventType = e::class as KClass<E>,
+                rawEvent = e,
+                serialisationResult = mappingContext.serialise(e),
+                timestamp = Instant.now(),
+                sequenceNumber = acc.first
             ))
         }
 
@@ -127,7 +153,17 @@ class PostgresBackend(
                 this["sequence_number"] = event.sequenceNumber
             }
 
-            val saveAggregate = ctx.update(saveAggregateQueryString) {
+            val saveAggregate = if(snapshot?.state != null) {
+                ctx.update(saveAggregateWithSnapshotQueryString) {
+                    this["aggregate_id"] = aggregateId.value
+                    this["aggregate_type"] = aggregateType.blueprint.name
+                    this["aggregate_version"] = saveableEvents.second.last().sequenceNumber
+                    this["snapshot_version"] = snapshot.version
+                    this["snapshot_payload"] = mappingContext.serialise(snapshot.state!!)
+                    this["snapshot_causation_ids"] = snapshot.causationIdHistory.map { it.value }.toTypedArray()
+                    this["expected_aggregate_version"] = expectedSequenceNumber
+                }
+            } else ctx.update(saveAggregateWithoutSnapshotQueryString) {
                 this["aggregate_id"] = aggregateId.value
                 this["aggregate_type"] = aggregateType.blueprint.name
                 this["aggregate_version"] = saveableEvents.second.last().sequenceNumber
@@ -208,6 +244,22 @@ class PostgresBackend(
             }
         }
     }.single()
+
+    private fun <S: AggregateState> rowToSnapshot(aggregateType: Aggregate<*,*,S>): (ResultRow) -> Snapshot<S> {
+        return { row ->
+            val state = this.mappingContext.deserialise<S>(
+                row["event_payload"].string,
+                row["event_type"].string,
+                row["event_version"].int
+            )
+
+            Snapshot(
+                state = state,
+                version = row["snapshot_version"].long,
+                causationIdHistory = row["snapshot_causation_ids"].stringArray.map { CausationId(it) }
+            )
+        }
+    }
 
     private fun <E: DomainEvent> rowToPersistedEvent(aggregateType: Aggregate<*,E,*>): (ResultRow) -> PersistedEvent<E>  {
         return { row ->

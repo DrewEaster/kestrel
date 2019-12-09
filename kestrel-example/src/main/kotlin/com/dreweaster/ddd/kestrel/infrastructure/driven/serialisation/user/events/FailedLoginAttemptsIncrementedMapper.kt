@@ -1,4 +1,4 @@
-package com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user
+package com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.events
 
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.FailedLoginAttemptsIncremented
 import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonMapperBuilderFactory

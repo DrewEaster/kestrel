@@ -1,9 +1,6 @@
 package com.dreweaster.ddd.kestrel.application
 
-import com.dreweaster.ddd.kestrel.domain.Aggregate
-import com.dreweaster.ddd.kestrel.domain.AggregateData
-import com.dreweaster.ddd.kestrel.domain.DomainEvent
-import com.dreweaster.ddd.kestrel.domain.DomainEventTag
+import com.dreweaster.ddd.kestrel.domain.*
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import java.time.Instant
@@ -21,13 +18,18 @@ interface Backend {
             aggregateId: AggregateId,
             afterSequenceNumber: Long): Flux<PersistedEvent<E>>
 
-    fun <E : DomainEvent, A: Aggregate<*,E,*>> saveEvents(
+    fun <S : AggregateState, A: Aggregate<*,*,S>> loadSnapshot(
+            aggregateType: A,
+            aggregateId: AggregateId): Mono<Snapshot<S>>
+
+    fun <E : DomainEvent, S: AggregateState, A: Aggregate<*,E,S>> saveEvents(
             aggregateType: A,
             aggregateId: AggregateId,
             causationId: CausationId,
             rawEvents: List<E>,
             expectedSequenceNumber: Long,
-            correlationId: CorrelationId? = null): Flux<PersistedEvent<E>>
+            correlationId: CorrelationId? = null,
+            snapshot: Snapshot<S>? = null): Flux<PersistedEvent<E>>
 
     fun <E : DomainEvent> fetchEventFeed(
             tags: Set<DomainEventTag>,
@@ -42,6 +44,8 @@ interface Backend {
 
 object OptimisticConcurrencyException : RuntimeException()
 data class UnexpectedNumberOfRowsAffectedInUpdate(val expected: Int, val actual: Int) : RuntimeException()
+
+data class Snapshot<S: AggregateState>(val version: Long, val state: S?, val causationIdHistory: List<CausationId>)
 
 data class PersistedEvent<E : DomainEvent>(
         val id: EventId,

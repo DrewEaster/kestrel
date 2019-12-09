@@ -4,7 +4,10 @@ import com.dreweaster.ddd.kestrel.application.*
 import com.dreweaster.ddd.kestrel.application.processmanager.stateless.HelloNewUser
 import com.dreweaster.ddd.kestrel.application.processmanager.stateless.WarnUserLocked
 import com.dreweaster.ddd.kestrel.application.readmodel.user.UserDTO
+import com.dreweaster.ddd.kestrel.domain.Aggregate
 import com.dreweaster.ddd.kestrel.domain.AggregateData
+import com.dreweaster.ddd.kestrel.domain.AggregateState
+import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.*
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.backend.PostgresBackend
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.r2dbc.R2dbcDatabase
@@ -12,7 +15,9 @@ import com.dreweaster.ddd.kestrel.infrastructure.cluster.LocalCluster
 import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonMapper
 import com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.JsonMappingContext
 import com.dreweaster.ddd.kestrel.infrastructure.driven.readmodel.user.ImmediatelyConsistentUserProjection
-import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.*
+import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.events.*
+import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.state.ActiveUserMapper
+import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.state.LockedUserMapper
 import com.dreweaster.ddd.kestrel.infrastructure.driving.eventsource.UserContextHttpEventSourceFactory
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.BoundedContextHttpEventSourceConfiguration
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.offset.PostgresOffsetTracker
@@ -81,13 +86,20 @@ object Application {
                 UsernameChangedMapper,
                 PasswordChangedMapper,
                 FailedLoginAttemptsIncrementedMapper,
-                UserLockedMapper
+                UserLockedMapper,
+                ActiveUserMapper,
+                LockedUserMapper
         ) as List<JsonMapper<AggregateData>>)
+
+        val eventSourcingConfiguration = object : EventSourcingConfiguration {
+            override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> commandDeduplicationThresholdFor(aggregateType: Aggregate<*, E, S>) = Int.MAX_VALUE
+            override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> snapshotThresholdFor(aggregateType: Aggregate<*, E, S>) = Int.MAX_VALUE
+        }
 
         val config = ConfigFactory.load()
         val userReadModel = ImmediatelyConsistentUserProjection(database)
         val backend = PostgresBackend(database, mappingContext, listOf(userReadModel))
-        val domainModel = EventSourcedDomainModel(backend, TwentyFourHourWindowCommandDeduplication)
+        val domainModel = EventSourcedDomainModel(backend, eventSourcingConfiguration)
         val jobManager = ClusterAwareScheduler(LocalCluster)
         val offsetManager = PostgresOffsetTracker(database)
 

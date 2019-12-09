@@ -38,7 +38,7 @@ class R2dbcResultColumn(columnName: String, row: Row): ResultColumn {
     override val zonedDateTime: ZonedDateTime by lazy { checkNotNull(row.get(columnName, ZonedDateTime::class.java)) }
     override val instant: Instant by lazy { zonedDateTime.toInstant() }
     override val uuid: UUID by lazy { checkNotNull(row.get(columnName, UUID::class.java)) }
-
+    override val stringArray: Array<String> by lazy { row.get(columnName, Array<String>::class.java) ?: emptyArray() }
     override val stringOrNull: String? by lazy { row.get(columnName, java.lang.String::class.java)?.let { it.toString() } }
     override val intOrNull: Int? by lazy { row.get(columnName, java.lang.Integer::class.java)?.let { it.toInt() } }
     override val longOrNull: Long? by lazy { row.get(columnName, java.lang.Long::class.java)?.let { it.toLong() } }

@@ -6,6 +6,7 @@ import com.dreweaster.ddd.kestrel.application.CausationId
 import com.dreweaster.ddd.kestrel.application.CorrelationId
 import com.dreweaster.ddd.kestrel.application.EventId
 import com.dreweaster.ddd.kestrel.domain.Aggregate
+import com.dreweaster.ddd.kestrel.domain.AggregateState
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
 import reactor.core.publisher.Flux
@@ -19,10 +20,27 @@ open class InMemoryBackend : Backend {
 
     private var nextOffset: Long = 0L
 
-    private var events: List<Pair<*, *>> = emptyList()
+    private var events: List<Pair<PersistedEvent<*>, Long>> = emptyList()
+
+    private var snapshots: Map<AggregateId, PersistedSnapshot<*,*,*>> = emptyMap()
 
     fun clear() {
-        events = emptyList()
+        clearEvents()
+        clearSnapshots()
+        nextOffset = 0
+    }
+
+    fun clearEvents(filter: (Pair<PersistedEvent<*>,Long>) -> Boolean = { true } ) {
+        events = events.filterNot(filter)
+        nextOffset = events.lastOrNull()?.let { it.second } ?: 0
+    }
+
+    fun clearSnapshots() {
+        snapshots = emptyMap()
+    }
+
+    override fun <S : AggregateState, A : Aggregate<*, *, S>> loadSnapshot(aggregateType: A, aggregateId: AggregateId): Mono<Snapshot<S>> {
+        return snapshots[aggregateId]?.let { Mono.just(it.snapshot as Snapshot<S>)  } ?: Mono.empty()
     }
 
     override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId): Flux<PersistedEvent<E>> {
@@ -33,9 +51,9 @@ open class InMemoryBackend : Backend {
         return Flux.fromIterable(persistedEventsFor(aggregateType, aggregateId).filter { it.sequenceNumber > afterSequenceNumber })
     }
 
-    override fun <E : DomainEvent, A : Aggregate<*, E, *>> saveEvents(aggregateType: A, aggregateId: AggregateId, causationId: CausationId, rawEvents: List<E>, expectedSequenceNumber: Long, correlationId: CorrelationId?): Flux<PersistedEvent<E>> {
+    override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> saveEvents(aggregateType: A, aggregateId: AggregateId, causationId: CausationId, rawEvents: List<E>, expectedSequenceNumber: Long, correlationId: CorrelationId?, snapshot: Snapshot<S>?): Flux<PersistedEvent<E>> {
         if (aggregateHasBeenModified(aggregateType, aggregateId, expectedSequenceNumber)) {
-           return Flux.error(OptimisticConcurrencyException)
+            return Flux.error(OptimisticConcurrencyException)
         }
 
         val persistedEvents = rawEvents.fold(Pair<Long, List<PersistedEvent<E>>>(expectedSequenceNumber + 1, emptyList())) { acc, e ->
@@ -58,6 +76,10 @@ open class InMemoryBackend : Backend {
         persistedEvents.forEach { event ->
             events += Pair(event, nextOffset)
             nextOffset += 1
+        }
+
+        snapshot?.let {
+            snapshots += (aggregateId to PersistedSnapshot(aggregateId, aggregateType, it))
         }
 
         return Flux.fromIterable(persistedEvents)
@@ -87,6 +109,11 @@ open class InMemoryBackend : Backend {
             expectedSequenceNumber: Long?): Boolean {
 
         return persistedEventsFor(aggregateType, aggregateId)
-                .lastOrNull()?.sequenceNumber?.equals(expectedSequenceNumber)?.not() == true
+            .lastOrNull()?.sequenceNumber?.equals(expectedSequenceNumber)?.not() == true
     }
+
+    data class PersistedSnapshot<E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>>(
+            val aggregateId: AggregateId,
+            val aggregateType: A,
+            val snapshot: Snapshot<S>)
 }
