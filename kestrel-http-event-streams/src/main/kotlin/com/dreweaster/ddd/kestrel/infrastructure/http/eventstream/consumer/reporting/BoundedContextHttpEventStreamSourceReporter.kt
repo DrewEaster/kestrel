@@ -25,6 +25,12 @@ interface BoundedContextHttpEventStreamSourceProbe {
 
     fun finishedFetchingOffset(ex: Throwable)
 
+    fun startedFetchingMaxOffset()
+
+    fun finishedFetchingMaxOffset(offset: Long)
+
+    fun finishedFetchingMaxOffset(ex: Throwable)
+
     fun startedSavingOffset()
 
     fun finishedSavingOffset(offset: Long)
@@ -76,6 +82,18 @@ class ReportingContext(subscriptionName: String, reporters: List<BoundedContextH
 
     override fun finishedFetchingOffset(ex: Throwable) {
         probes.forEach { it.finishedFetchingOffset(ex) }
+    }
+
+    override fun startedFetchingMaxOffset() {
+        probes.forEach { it.startedFetchingMaxOffset() }
+    }
+
+    override fun finishedFetchingMaxOffset(offset: Long) {
+        probes.forEach { it.finishedFetchingMaxOffset(offset) }
+    }
+
+    override fun finishedFetchingMaxOffset(ex: Throwable) {
+        probes.forEach { it.finishedFetchingMaxOffset(ex) }
     }
 
     override fun startedSavingOffset() {
@@ -140,6 +158,18 @@ object ConsoleReporter : BoundedContextHttpEventStreamSourceReporter {
         }
 
         override fun finishedFetchingOffset(ex: Throwable) {
+
+        }
+
+        override fun startedFetchingMaxOffset() {
+
+        }
+
+        override fun finishedFetchingMaxOffset(offset: Long) {
+
+        }
+
+        override fun finishedFetchingMaxOffset(ex: Throwable) {
 
         }
 
