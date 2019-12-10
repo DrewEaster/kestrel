@@ -28,11 +28,11 @@ import kotlin.reflect.KClass
 
 typealias FullyQualifiedClassName = String
 
-data class HttpJsonEventMapper<T: DomainEvent>(
-    val targetEventClass: KClass<T>,
-    val sourceEventTag: DomainEventTag,
-    val sourceEventType: FullyQualifiedClassName,
-    val map: (JsonObject) -> T)
+data class HttpJsonEventMapper<T : DomainEvent>(
+        val targetEventClass: KClass<T>,
+        val sourceEventTag: DomainEventTag,
+        val sourceEventType: FullyQualifiedClassName,
+        val map: (JsonObject) -> T)
 
 interface BoundedContextHttpEventStreamSourceConfiguration {
 
@@ -57,13 +57,13 @@ class BoundedContextHttpEventStreamSource(
         val configuration: BoundedContextHttpEventStreamSourceConfiguration,
         eventMappers: List<HttpJsonEventMapper<*>>,
         val offsetManager: OffsetManager,
-        private val jobManager: JobManager): BoundedContextEventStreamSource {
+        private val jobManager: JobManager) : BoundedContextEventStreamSource {
 
     private val LOG = LoggerFactory.getLogger(BoundedContextHttpEventStreamSource::class.java)
 
     private val targetClassToEventTag: Map<KClass<out DomainEvent>, DomainEventTag> = eventMappers.map { it.targetEventClass to it.sourceEventTag }.toMap()
 
-    private val sourceEventTypeToMapper: Map<FullyQualifiedClassName, (JsonObject) -> DomainEvent> = eventMappers.map { it.sourceEventType to { jsonObject: JsonObject -> it.map(jsonObject)} }.toMap()
+    private val sourceEventTypeToMapper: Map<FullyQualifiedClassName, (JsonObject) -> DomainEvent> = eventMappers.map { it.sourceEventType to { jsonObject: JsonObject -> it.map(jsonObject) } }.toMap()
 
     private var reporters: List<BoundedContextHttpEventStreamSourceReporter> = emptyList()
 
@@ -85,7 +85,7 @@ class BoundedContextHttpEventStreamSource(
                 subscriberConfiguration = subscriberConfiguration,
                 eventHandlers = handlers)
 
-        if(configuration.enabled(subscriberConfiguration.name)) {
+        if (configuration.enabled(subscriberConfiguration.name)) {
             jobManager.scheduleManyTimes(configuration.repeatScheduleFor(subscriberConfiguration.name), job)
         } else {
             LOG.warn("The event stream subscriber '${subscriberConfiguration.name}' is disabled")
@@ -94,7 +94,7 @@ class BoundedContextHttpEventStreamSource(
 
     inner class ConsumeHttpEventStreamJob(
             private val eventHandlers: Map<KClass<out DomainEvent>, (suspend (DomainEvent, EventMetadata) -> Unit)>,
-            tags : Set<DomainEventTag>,
+            tags: Set<DomainEventTag>,
             subscriberConfiguration: EventStreamSubscriberConfiguration) : Job {
 
         override val name = subscriberConfiguration.name
@@ -102,17 +102,17 @@ class BoundedContextHttpEventStreamSource(
         private val probe = ReportingContext(name, reporters)
 
         private val requestFactory = HttpEventStreamSubscriptionEdenPolicy.from(subscriberConfiguration.edenPolicy)
-            .newRequestFactory(
-                subscriberConfiguration = configuration,
-                tags = tags,
-                batchSize = configuration.batchSizeFor(subscriberConfiguration.name))
+                .newRequestFactory(
+                        subscriberConfiguration = configuration,
+                        tags = tags,
+                        batchSize = configuration.batchSizeFor(subscriberConfiguration.name))
 
         private val jsonParser = JsonParser()
 
         override suspend fun execute() {
             probe.startedConsuming()
             try {
-                val lastProcessedOffset = fetchOffset()
+                val lastProcessedOffset = fetchOffset() ?: fetchMaxOffset()
                 val events = fetchEvents(lastProcessedOffset)
 
                 events.forEach { event ->
@@ -138,7 +138,7 @@ class BoundedContextHttpEventStreamSource(
                     eventHandler?.invoke(event, extractEventMetadata(eventJson))
                 }
                 probe.finishedHandlingEvent()
-            } catch(ex: Exception) {
+            } catch (ex: Exception) {
                 probe.finishedHandlingEvent(ex)
                 throw ex
             }
@@ -149,7 +149,7 @@ class BoundedContextHttpEventStreamSource(
             try {
                 offsetManager.saveOffset(name, offset)
                 probe.finishedSavingOffset(offset)
-            } catch(ex: Exception) {
+            } catch (ex: Exception) {
                 probe.finishedSavingOffset(ex)
                 throw ex
             }
@@ -167,7 +167,7 @@ class BoundedContextHttpEventStreamSource(
             }
         }
 
-        private suspend fun fetchEvents(lastProcessedOffset: Long?): List<JsonObject> {
+        private suspend fun fetchEvents(lastProcessedOffset: Long): List<JsonObject> {
             probe.startedFetchingEventStream()
             val request = requestFactory.createRequest(lastProcessedOffset)
             return try {
@@ -176,20 +176,35 @@ class BoundedContextHttpEventStreamSource(
                 val maxOffset = jsonBody["max_offset"].asLong
                 probe.finishedFetchingEventStream(maxOffset)
                 jsonBody["events"].asJsonArray.toList().map { it.asJsonObject }
-            } catch(ex: Exception) {
+            } catch (ex: Exception) {
                 probe.finishedFetchingEventStream(ex)
                 throw ex
             }
         }
 
+        private suspend fun fetchMaxOffset(): Long {
+            probe.startedFetchingMaxOffset()
+            val request = requestFactory.createRequest(-1L)
+            return try {
+                val response = httpClient.execute(request)
+                val jsonBody = jsonParser.parse(response.responseBody)
+                val maxOffset = jsonBody["max_offset"].asLong
+                probe.finishedFetchingMaxOffset(maxOffset)
+                maxOffset
+            } catch (ex: Exception) {
+                probe.finishedFetchingMaxOffset(ex)
+                throw ex
+            }
+        }
+
         private fun extractEventMetadata(eventJson: JsonObject) =
-            EventMetadata(
-                EventId(eventJson["id"].string),
-                AggregateId(eventJson["aggregate_id"].string),
-                CausationId(eventJson["causation_id"].string),
-                eventJson["correlation_id"].nullString?.let { CorrelationId(it) },
-                eventJson["sequence_number"].long
-            )
+                EventMetadata(
+                        EventId(eventJson["id"].string),
+                        AggregateId(eventJson["aggregate_id"].string),
+                        CausationId(eventJson["causation_id"].string),
+                        eventJson["correlation_id"].nullString?.let { CorrelationId(it) },
+                        eventJson["sequence_number"].long
+                )
 
         private suspend fun AsyncHttpClient.execute(request: Request): Response {
             return suspendCancellableCoroutine { cont: CancellableContinuation<Response> ->
@@ -213,7 +228,7 @@ class BoundedContextHttpEventStreamSource(
 sealed class HttpEventStreamSubscriptionEdenPolicy {
 
     companion object {
-        fun from(policy: EventStreamSubscriptionEdenPolicy) = when(policy) {
+        fun from(policy: EventStreamSubscriptionEdenPolicy) = when (policy) {
             EventStreamSubscriptionEdenPolicy.FROM_NOW -> FromNow
             EventStreamSubscriptionEdenPolicy.BEGINNING_OF_TIME -> BeginningOfTime
         }
@@ -225,7 +240,7 @@ sealed class HttpEventStreamSubscriptionEdenPolicy {
             batchSize: Int): RequestFactory
 
     interface RequestFactory {
-        fun createRequest(lastProcessedOffset: Long?): Request
+        fun createRequest(lastProcessedOffset: Long): Request
     }
 }
 
@@ -236,18 +251,18 @@ object BeginningOfTime : HttpEventStreamSubscriptionEdenPolicy() {
             batchSize: Int): RequestFactory {
 
         return object : RequestFactory {
-            override fun createRequest(lastProcessedOffset: Long?): Request {
+            override fun createRequest(lastProcessedOffset: Long): Request {
                 val query = HttpJsonEventQuery(
                         tags = tags,
-                        afterOffset = lastProcessedOffset ?: -1L,
+                        afterOffset = lastProcessedOffset,
                         batchSize = batchSize
                 )
 
                 val url = query.eventsUrlFor(
-                    protocol = subscriberConfiguration.producerEndpointProtocol,
-                    hostname = subscriberConfiguration.producerEndpointHostname,
-                    port = subscriberConfiguration.producerEndpointPort,
-                    path = subscriberConfiguration.producerEndpointPath
+                        protocol = subscriberConfiguration.producerEndpointProtocol,
+                        hostname = subscriberConfiguration.producerEndpointHostname,
+                        port = subscriberConfiguration.producerEndpointPort,
+                        path = subscriberConfiguration.producerEndpointPath
                 )
 
                 return RequestBuilder().setUrl(url.toString()).setMethod("GET").build()
@@ -265,38 +280,21 @@ object FromNow : HttpEventStreamSubscriptionEdenPolicy() {
         val now = Instant.now() // cache now() once so doesn't refresh on every request
 
         return object : RequestFactory {
-            override fun createRequest(lastProcessedOffset: Long?): Request {
-                return if(lastProcessedOffset != null) {
-                    val query = HttpJsonEventQuery(
-                            tags = tags,
-                            afterOffset = lastProcessedOffset,
-                            batchSize = batchSize
-                    )
+            override fun createRequest(lastProcessedOffset: Long): Request {
+                val query = HttpJsonEventQuery(
+                        tags = tags,
+                        afterOffset = lastProcessedOffset,
+                        batchSize = batchSize
+                )
 
-                    val url = query.eventsUrlFor(
+                val url = query.eventsUrlFor(
                         protocol = subscriberConfiguration.producerEndpointProtocol,
                         hostname = subscriberConfiguration.producerEndpointHostname,
                         port = subscriberConfiguration.producerEndpointPort,
                         path = subscriberConfiguration.producerEndpointPath
-                    )
+                )
 
-                    RequestBuilder().setUrl(url.toString()).setMethod("GET").build()
-                } else {
-                    val query = HttpJsonEventQuery(
-                            tags = tags,
-                            afterTimestamp = now,
-                            batchSize = batchSize
-                    )
-
-                    val url = query.eventsUrlFor(
-                        protocol = subscriberConfiguration.producerEndpointProtocol,
-                        hostname = subscriberConfiguration.producerEndpointHostname,
-                        port = subscriberConfiguration.producerEndpointPort,
-                        path = subscriberConfiguration.producerEndpointPath
-                    )
-
-                    RequestBuilder().setUrl(url.toString()).setMethod("GET").build()
-                }
+                return RequestBuilder().setUrl(url.toString()).setMethod("GET").build()
             }
         }
     }
