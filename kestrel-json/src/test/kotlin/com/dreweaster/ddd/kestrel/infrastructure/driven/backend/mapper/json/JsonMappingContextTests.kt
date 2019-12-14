@@ -1,6 +1,6 @@
 package com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json
 
-import com.dreweaster.ddd.kestrel.domain.AggregateData
+import com.dreweaster.ddd.kestrel.domain.Persistable
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
 import com.dreweaster.ddd.kestrel.util.json.*
@@ -16,8 +16,8 @@ class JsonMappingContextTests : FeatureSpec() {
     init {
         feature("A JsonMappingContext can deserialise different versions of conceptual aggregate data with a complex migration history") {
 
-            val mappers: List<JsonMapper<AggregateData>> =
-                    listOf(EventWithComplexMigrationHistoryMapper()) as List<JsonMapper<AggregateData>>
+            val mappers: List<JsonMapper<Persistable>> =
+                    listOf(EventWithComplexMigrationHistoryMapper()) as List<JsonMapper<Persistable>>
 
             val context = JsonMappingContext(mappers)
 
@@ -179,11 +179,11 @@ class JsonMappingContextTests : FeatureSpec() {
 
         feature("A JsonMappingContext can deserialise a variety of conceptual aggregate data") {
 
-            val mappers: List<JsonMapper<AggregateData>> =
+            val mappers: List<JsonMapper<Persistable>> =
                     listOf(
                         EventWithComplexMigrationHistoryMapper(),
                         EventWithNoMigrationHistoryMapper()
-                    ) as List<JsonMapper<AggregateData>>
+                    ) as List<JsonMapper<Persistable>>
 
             val context = JsonMappingContext(mappers)
 
@@ -231,11 +231,11 @@ class JsonMappingContextTests : FeatureSpec() {
 
         feature("A JsonMappingContext can serialise a variety of conceptual aggregate data") {
 
-            val mappers: List<JsonMapper<AggregateData>> =
+            val mappers: List<JsonMapper<Persistable>> =
                     listOf(
                             EventWithComplexMigrationHistoryMapper(),
                             EventWithNoMigrationHistoryMapper()
-                    ) as List<JsonMapper<AggregateData>>
+                    ) as List<JsonMapper<Persistable>>
 
             val context = JsonMappingContext(mappers)
 

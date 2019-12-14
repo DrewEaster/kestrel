@@ -1,15 +1,15 @@
 package com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json
 
-import com.dreweaster.ddd.kestrel.application.AggregateDataMappingContext
+import com.dreweaster.ddd.kestrel.application.PersistableMappingContext
 import com.dreweaster.ddd.kestrel.application.MappingException
-import com.dreweaster.ddd.kestrel.application.AggregateDataSerialisationResult
+import com.dreweaster.ddd.kestrel.application.PersistableSerialisationResult
 import com.dreweaster.ddd.kestrel.application.SerialisationContentType
-import com.dreweaster.ddd.kestrel.domain.AggregateData
+import com.dreweaster.ddd.kestrel.domain.Persistable
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
 import java.io.IOException
 
-interface JsonMapperBuilder<Data : AggregateData> {
+interface JsonMapperBuilder<Data : Persistable> {
 
     fun migrateFormat(migration: ((ObjectNode) -> ObjectNode)): JsonMapperBuilder<Data>
 
@@ -18,12 +18,12 @@ interface JsonMapperBuilder<Data : AggregateData> {
     fun mappingFunctions(serialiseFunction: ((Data) ->  ObjectNode), deserialiseFunction: ((ObjectNode) -> Data))
 }
 
-interface JsonMapperBuilderFactory<Data : AggregateData> {
+interface JsonMapperBuilderFactory<Data : Persistable> {
 
     fun create(initialClassName: String): JsonMapperBuilder<Data>
 }
 
-interface JsonMapper<Data : AggregateData> {
+interface JsonMapper<Data : Persistable> {
 
     fun configure(factory: JsonMapperBuilderFactory<Data>)
 }
@@ -35,43 +35,43 @@ class MissingDeserialiserException(serialisedType: String, serialisedVersion: In
 
 class MissingSerialiserException(type: String) : MappingException("No serialiser found for type = '$type'")
 
-class JsonMappingContext(mappers: List<JsonMapper<AggregateData>>) : AggregateDataMappingContext {
+class JsonMappingContext(mappers: List<JsonMapper<Persistable>>) : PersistableMappingContext {
 
     private val objectMapper: ObjectMapper = ObjectMapper()
 
-    private var deserialisers: Map<Pair<String, Int>, (String) -> AggregateData> = emptyMap()
-    private var serialisers: Map<String, (AggregateData) -> Pair<String, Int>> = emptyMap()
+    private var deserialisers: Map<Pair<String, Int>, (String) -> Persistable> = emptyMap()
+    private var serialisers: Map<String, (Persistable) -> Pair<String, Int>> = emptyMap()
 
     init {
         init(mappers)
     }
 
     @Suppress("UNCHECKED_CAST")
-    override fun <E : AggregateData> deserialise(serialisedPayload: String, serialisedType: String, serialisedVersion: Int): E {
+    override fun <E : Persistable> deserialise(serialisedPayload: String, serialisedType: String, serialisedVersion: Int): E {
         val deserialiser = deserialisers[Pair(serialisedType, serialisedVersion)] ?: throw MissingDeserialiserException(serialisedType, serialisedVersion)
         return deserialiser(serialisedPayload) as E
     }
 
-    override fun <E : AggregateData> serialise(data: E): AggregateDataSerialisationResult {
+    override fun <E : Persistable> serialise(data: E): PersistableSerialisationResult {
         val serialiser = serialisers[data::class.qualifiedName!!] ?: throw MissingSerialiserException(data::class.qualifiedName!!)
 
         val versionedPayload = serialiser(data)
 
-        return AggregateDataSerialisationResult(
+        return PersistableSerialisationResult(
             versionedPayload.first,
             SerialisationContentType.JSON,
             versionedPayload.second
         )
     }
 
-    private fun init(configurers: List<JsonMapper<AggregateData>>) {
+    private fun init(configurers: List<JsonMapper<Persistable>>) {
         // TODO: Validate no clashes between registered mappers
         // e.g. what if two mappers try to convert to the same class?
         // e.g. what if a com.dreweaster.ddd.jester.infrastructure.driven.eventstore.com.dreweaster.ddd.jester.infrastructure.driven.eventstore.postgres.db.migration in one mapper maps to a class name in another mapper?
         // Such scenarios should be made impossible (at least for v1...)
 
         val mappingConfigurations = configurers.map {
-            val mappingConfiguration = MappingConfiguration<AggregateData>()
+            val mappingConfiguration = MappingConfiguration<Persistable>()
             it.configure(mappingConfiguration)
             mappingConfiguration
         }
@@ -81,7 +81,7 @@ class JsonMappingContext(mappers: List<JsonMapper<AggregateData>>) : AggregateDa
         serialisers = mappingConfigurations.fold(serialisers) { acc, mappingConfiguration -> acc + mappingConfiguration.createSerialiser() }
     }
 
-    inner class MappingConfiguration<Data : AggregateData> : JsonMapperBuilderFactory<Data>, JsonMapperBuilder<Data> {
+    inner class MappingConfiguration<Data : Persistable> : JsonMapperBuilderFactory<Data>, JsonMapperBuilder<Data> {
 
         private var currentVersion: Int = 0
 
@@ -126,8 +126,8 @@ class JsonMappingContext(mappers: List<JsonMapper<AggregateData>>) : AggregateDa
             }
         }
 
-        fun createDeserialisers(): Map<Pair<String, Int>, (String) -> AggregateData> {
-            var deserialisers: Map<Pair<String, Int>, (String) -> AggregateData> = emptyMap()
+        fun createDeserialisers(): Map<Pair<String, Int>, (String) -> Persistable> {
+            var deserialisers: Map<Pair<String, Int>, (String) -> Persistable> = emptyMap()
 
             if (!migrations.isEmpty()) {
                 deserialisers = putDeserialisers(migrations, deserialisers)
@@ -143,7 +143,7 @@ class JsonMappingContext(mappers: List<JsonMapper<AggregateData>>) : AggregateDa
 
         private fun putDeserialisers(
                 migrations: List<Migration>,
-                deserialisers: Map<Pair<String, Int>, (String) -> AggregateData>): Map<Pair<String, Int>, (String) -> AggregateData> {
+                deserialisers: Map<Pair<String, Int>, (String) -> Persistable>): Map<Pair<String, Int>, (String) -> Persistable> {
 
             return if (migrations.isEmpty()) {
                 deserialisers
@@ -154,7 +154,7 @@ class JsonMappingContext(mappers: List<JsonMapper<AggregateData>>) : AggregateDa
 
         private fun putDeserialiser(
                 migrations: List<Migration>,
-                deserialisers: Map<Pair<String, Int>, (String) -> AggregateData>): Map<Pair<String, Int>, (String) -> AggregateData> {
+                deserialisers: Map<Pair<String, Int>, (String) -> Persistable>): Map<Pair<String, Int>, (String) -> Persistable> {
 
             val migration = migrations.first()
             val className = migration.fromClassName

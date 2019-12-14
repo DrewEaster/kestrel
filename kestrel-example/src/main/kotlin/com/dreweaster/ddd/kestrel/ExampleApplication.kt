@@ -5,7 +5,7 @@ import com.dreweaster.ddd.kestrel.application.processmanager.stateless.HelloNewU
 import com.dreweaster.ddd.kestrel.application.processmanager.stateless.WarnUserLocked
 import com.dreweaster.ddd.kestrel.application.readmodel.user.UserDTO
 import com.dreweaster.ddd.kestrel.domain.Aggregate
-import com.dreweaster.ddd.kestrel.domain.AggregateData
+import com.dreweaster.ddd.kestrel.domain.Persistable
 import com.dreweaster.ddd.kestrel.domain.AggregateState
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.*
@@ -89,7 +89,7 @@ object Application {
                 UserLockedMapper,
                 ActiveUserMapper,
                 LockedUserMapper
-        ) as List<JsonMapper<AggregateData>>)
+        ) as List<JsonMapper<Persistable>>)
 
         val eventSourcingConfiguration = object : EventSourcingConfiguration {
             override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> commandDeduplicationThresholdFor(aggregateType: Aggregate<*, E, S>) = Int.MAX_VALUE

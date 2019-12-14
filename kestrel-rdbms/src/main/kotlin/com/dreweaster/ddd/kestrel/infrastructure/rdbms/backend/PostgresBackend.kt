@@ -17,7 +17,7 @@ import kotlin.reflect.KClass
 
 class PostgresBackend(
         private val db: Database,
-        private val mappingContext: AggregateDataMappingContext,
+        private val mappingContext: PersistableMappingContext,
         private val projections: List<ConsistentDatabaseProjection>) : Backend {
 
     private val maxOffsetForAllEventsQueryString =
@@ -309,7 +309,7 @@ class PostgresBackend(
             val correlationId: CorrelationId?,
             val eventType: KClass<E>,
             val rawEvent: E,
-            val serialisationResult: AggregateDataSerialisationResult,
+            val serialisationResult: PersistableSerialisationResult,
             val timestamp: Instant,
             val sequenceNumber: Long) {
 

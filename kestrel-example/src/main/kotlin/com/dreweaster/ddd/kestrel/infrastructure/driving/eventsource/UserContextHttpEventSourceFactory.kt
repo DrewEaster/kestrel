@@ -1,12 +1,12 @@
 package com.dreweaster.ddd.kestrel.infrastructure.driving.eventsource
 
-import com.dreweaster.ddd.kestrel.application.AggregateDataMappingContext
+import com.dreweaster.ddd.kestrel.application.PersistableMappingContext
 import com.dreweaster.ddd.kestrel.application.BoundedContexts.UserContext
-import com.dreweaster.ddd.kestrel.domain.AggregateData
+import com.dreweaster.ddd.kestrel.domain.Persistable
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.*
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.BoundedContextHttpEventSourceFactory
 
-class UserContextHttpEventSourceFactory(private val userContextAggregateDataMappingContext: AggregateDataMappingContext): BoundedContextHttpEventSourceFactory(UserContext) {
+class UserContextHttpEventSourceFactory(private val userContextPersistableMappingContext: PersistableMappingContext): BoundedContextHttpEventSourceFactory(UserContext) {
 
     override val deserialisers = eventDeserialisers {
 
@@ -38,7 +38,7 @@ class UserContextHttpEventSourceFactory(private val userContextAggregateDataMapp
         }
     }
 
-    private fun <Data : AggregateData> mappingContextDeserialiser(): (String, String, Int) -> Data = { payload, type, version ->
-        userContextAggregateDataMappingContext.deserialise(payload, type, version)
+    private fun <Data : Persistable> mappingContextDeserialiser(): (String, String, Int) -> Data = { payload, type, version ->
+        userContextPersistableMappingContext.deserialise(payload, type, version)
     }
 }

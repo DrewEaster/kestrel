@@ -91,14 +91,14 @@ enum class SerialisationContentType(private val value: String) {
     }
 }
 
-interface AggregateDataMappingContext {
+interface PersistableMappingContext {
 
-    fun <Data : AggregateData> deserialise(serialisedPayload: String, serialisedType: String, serialisedVersion: Int): Data
+    fun <Data : Persistable> deserialise(serialisedPayload: String, serialisedType: String, serialisedVersion: Int): Data
 
-    fun <Data: AggregateData> serialise(data: Data): AggregateDataSerialisationResult
+    fun <Data: Persistable> serialise(data: Data): PersistableSerialisationResult
 }
 
-data class AggregateDataSerialisationResult(val payload: String, val contentType: SerialisationContentType, val version: Int)
+data class PersistableSerialisationResult(val payload: String, val contentType: SerialisationContentType, val version: Int)
 
 open class MappingException : RuntimeException {
 
