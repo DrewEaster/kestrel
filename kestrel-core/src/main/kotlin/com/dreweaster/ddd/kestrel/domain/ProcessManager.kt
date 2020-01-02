@@ -121,12 +121,12 @@ class ProcessManagerStepBuilder<Result, C: ProcessManagerContext, E: DomainEvent
 
     var capturedEventReceivers : List<(Result) -> EventReceiver<*>> = emptyList()
 
-    fun andSend(result: (Result) -> CommandReceiver<*,*,*>): ProcessManagerStepBuilder<Result, C, E, S> {
-        capturedCommandReceivers += result
+    fun andSend(vararg result: (Result) -> CommandReceiver<*,*,*>): ProcessManagerStepBuilder<Result, C, E, S> {
+        capturedCommandReceivers += senders
         return this
     }
 
-    fun <Evt: E> andEmit(result: (Result) -> EventReceiver<Evt>): ProcessManagerStepBuilder<Result, C, E, S> {
+    fun <Evt: E> andEmit(vararg result: (Result) -> EventReceiver<Evt>): ProcessManagerStepBuilder<Result, C, E, S> {
         capturedEventReceivers += result
         return this
     }

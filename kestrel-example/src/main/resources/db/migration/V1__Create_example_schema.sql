@@ -16,9 +16,10 @@ CREATE TABLE domain_event (
 CREATE INDEX events_for_aggregate_instance_idx ON domain_event (aggregate_type, aggregate_id);
 
 CREATE TABLE aggregate_root (
-    aggregate_id      VARCHAR(36)  NOT NULL,
-    aggregate_type    VARCHAR(255) NOT NULL,
-    aggregate_version BIGINT       NOT NULL,
+    aggregate_id      VARCHAR(36)              NOT NULL,
+    aggregate_type    VARCHAR(255)             NOT NULnL,
+    aggregate_version BIGINT                   NOT NULL,
+    last_updated_at   TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     PRIMARY KEY (aggregate_id, aggregate_type)
 );
 
@@ -56,10 +57,24 @@ CREATE TABLE process_manager (
     PRIMARY KEY (process_manager_correlation_id, process_manager_type)
 );
 
+CREATE TABLE process_manager (
+    process_manager_correlation_id  VARCHAR(72)              NOT NULL,
+    process_manager_type            VARCHAR(255)             NOT NULL,
+    min_sequence_number             BIGINT                   NOT NULL DEFAULT 0, -- This is used to 'reset' the PM for indefinitely running PMs
+    max_sequence_number             BIGINT                   NOT NULL DEFAULT 0, -- if reset, min_seq_num will be > max_seq_num
+    last_processed_sequence_number  BIGINT                   NOT NULL DEFAULT -1,
+    oldest_unprocessed_timestamp    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    has_unprocessed_events          BOOLEAN                  NOT NULL DEFAULT true, -- Resets to false after a successfully processed organic event (when max_seq_number = last_
+    failure_count                   INT                      NOT NULL DEFAULT 0, -- Resets to 0 after a successfully processed organic event
+    suspended                       BOOLEAN                  NOT NULL DEFAULT false,
+    last_updated_at                 TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    PRIMARY KEY (process_manager_correlation_id, process_manager_type)
+);
+
 CREATE TABLE process_manager_failure (
     failure_id                     BIGSERIAL                PRIMARY KEY,
     process_manager_correlation_id VARCHAR(72)              NOT NULL,
-    sequence_number                BIGINT                   NOT NULL,
+    sequence_number                BIGINT                   NOT NULL, -- the sequence number of the event that failed processing
     failure_code                   VARCHAR(72)              NOT NULL,
     stack_trace                    TEXT                     NULL,
     message                        TEXT                     NULL,
