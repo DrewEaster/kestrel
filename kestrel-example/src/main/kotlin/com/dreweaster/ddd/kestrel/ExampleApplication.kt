@@ -92,8 +92,8 @@ object Application {
         ) as List<JsonMapper<Persistable>>)
 
         val eventSourcingConfiguration = object : EventSourcingConfiguration {
-            override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> commandDeduplicationThresholdFor(aggregateType: Aggregate<*, E, S>) = Int.MAX_VALUE
-            override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> snapshotThresholdFor(aggregateType: Aggregate<*, E, S>) = Int.MAX_VALUE
+            override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> commandDeduplicationThresholdFor(aggregateType: Aggregate<*, E, S>) = 100
+            override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> snapshotThresholdFor(aggregateType: Aggregate<*, E, S>) = 1
         }
 
         val config = ConfigFactory.load()

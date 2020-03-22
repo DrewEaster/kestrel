@@ -37,7 +37,7 @@
         <serialization.version>0.10.0</serialization.version>
         <reactor.version>3.2.10.RELEASE</reactor.version>
         <reactor.netty.version>0.8.9.RELEASE</reactor.netty.version>
-        <r2dbc.version>Arabba-RC1</r2dbc.version>
+        <r2dbc.version>Arabba-SR2</r2dbc.version>
         <jackson.version>2.9.10</jackson.version>
     </properties>
 
