@@ -15,6 +15,7 @@ import reactor.core.publisher.toMono
 import java.time.Instant
 import kotlin.reflect.KClass
 
+// FIXME: worrying error swallowing when saveAggregate fails
 class PostgresBackend(
         private val db: Database,
         private val mappingContext: PersistableMappingContext,

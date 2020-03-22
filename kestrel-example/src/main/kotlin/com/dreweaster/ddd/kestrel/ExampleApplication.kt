@@ -153,7 +153,10 @@ object Application {
                             request.receiveJsonObject(LoginRequest.mapper).flatMap { loginRequest ->
                                 val user = domainModel.aggregateRootOf(User, AggregateId(request.param("id")!!))
                                 user.handleCommand(Login(loginRequest.password))
-                            }.flatMap { result -> Mono.just(result.aggregateId) }
+                            }.flatMap { result -> when(result) {
+                                is UnexpectedExceptionResult -> Mono.error(result.ex)
+                                else -> Mono.just(result.aggregateId)
+                            }}
                         ) { id -> jsonObject("id" to id.value)} // TODO: Error handling
                     }
             }.bindNow()
