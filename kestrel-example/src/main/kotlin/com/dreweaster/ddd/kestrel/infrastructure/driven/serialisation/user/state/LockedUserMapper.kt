@@ -25,7 +25,7 @@ object LockedUserMapper : JsonMapper<LockedUser> {
     }
 
     override fun configure(factory: JsonMapperBuilderFactory<LockedUser>) {
-        factory.create(ActiveUser::class.qualifiedName!!)
+        factory.create(LockedUser::class.qualifiedName!!)
             .mappingFunctions(serialiser, deserialiser)
     }
 }
