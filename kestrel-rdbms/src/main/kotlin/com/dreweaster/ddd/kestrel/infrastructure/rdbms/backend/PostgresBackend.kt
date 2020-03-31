@@ -15,6 +15,7 @@ import reactor.core.publisher.toMono
 import java.time.Instant
 import kotlin.reflect.KClass
 
+// FIXME: worrying error swallowing when saveAggregate fails
 class PostgresBackend(
         private val db: Database,
         private val mappingContext: PersistableMappingContext,
@@ -82,18 +83,18 @@ class PostgresBackend(
 
     private val saveAggregateWithSnapshotQueryString =
         """
-            INSERT INTO aggregate_root (aggregate_id, aggregate_type, aggregate_version, snapshot_version, snapshot_payload, snapshot_causation_ids)
-            VALUES (:aggregate_id, :aggregate_type, :aggregate_version, :snapshot_version, :snapshot_payload, :snapshot_causation_ids)
+            INSERT INTO aggregate_root (aggregate_id, aggregate_type, aggregate_version, snapshot_type, snapshot_version, snapshot_payload, snapshot_payload_version, snapshot_causation_ids)
+            VALUES (:aggregate_id, :aggregate_type, :aggregate_version, :snapshot_type, :snapshot_version, :snapshot_payload, :snapshot_payload_version, :snapshot_causation_ids)
             ON CONFLICT ON CONSTRAINT aggregate_root_pkey
-            DO UPDATE SET aggregate_version = :aggregate_version, snapshot_version = :snapshot_version, snapshot_payload = :snapshot_payload, snapshot_causation_ids = :snapshot_causation_ids  
+            DO UPDATE SET aggregate_version = :aggregate_version, snapshot_type = :snapshot_type, snapshot_version = :snapshot_version, snapshot_payload = :snapshot_payload, snapshot_payload_version = :snapshot_payload_version, snapshot_causation_ids = :snapshot_causation_ids  
             WHERE aggregate_root.aggregate_version = :expected_aggregate_version
         """.trimIndent()
 
     private val loadSnapshotQueryString =
         """
-            SELECT snapshot_version, snapshot_payload, snapshot_causation_ids
+            SELECT snapshot_type, snapshot_version, snapshot_payload, snapshot_payload_version, snapshot_causation_ids
             FROM aggregate_root
-            WHERE aggregate_id = :aggregate_id AND aggregate_type = :aggregate_type
+            WHERE aggregate_id = :aggregate_id AND aggregate_type = :aggregate_type AND snapshot_payload IS NOT NULL
         """.trimIndent()
 
     override fun <S : AggregateState, A : Aggregate<*, *, S>> loadSnapshot(aggregateType: A, aggregateId: AggregateId): Mono<Snapshot<S>> = db.inTransaction { ctx ->
@@ -154,12 +155,15 @@ class PostgresBackend(
             }
 
             val saveAggregate = if(snapshot?.state != null) {
+                val serialisedSnapshot = mappingContext.serialise(snapshot.state!!)
                 ctx.update(saveAggregateWithSnapshotQueryString) {
                     this["aggregate_id"] = aggregateId.value
                     this["aggregate_type"] = aggregateType.blueprint.name
                     this["aggregate_version"] = saveableEvents.second.last().sequenceNumber
+                    this["snapshot_type"] = snapshot.state!!::class.qualifiedName!!
                     this["snapshot_version"] = snapshot.version
-                    this["snapshot_payload"] = mappingContext.serialise(snapshot.state!!)
+                    this["snapshot_payload"] = serialisedSnapshot.payload
+                    this["snapshot_payload_version"] = serialisedSnapshot.version
                     this["snapshot_causation_ids"] = snapshot.causationIdHistory.map { it.value }.toTypedArray()
                     this["expected_aggregate_version"] = expectedSequenceNumber
                 }
@@ -248,9 +252,9 @@ class PostgresBackend(
     private fun <S: AggregateState> rowToSnapshot(aggregateType: Aggregate<*,*,S>): (ResultRow) -> Snapshot<S> {
         return { row ->
             val state = this.mappingContext.deserialise<S>(
-                row["event_payload"].string,
-                row["event_type"].string,
-                row["event_version"].int
+                row["snapshot_payload"].string,
+                row["snapshot_type"].string,
+                row["snapshot_payload_version"].int
             )
 
             Snapshot(
