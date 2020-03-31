@@ -42,6 +42,13 @@ abstract class BoundedContextHttpEventSourceFactory(val name: BoundedContextName
     }
 
     class Tag(val tag: DomainEventTag, val deserializersList: MutableList<EventMapper<*>>) {
+
+        inline fun <E: DomainEvent> event(eventClass: KClass<E>, init: Deserialisers<E>.() -> Unit): Deserialisers<E> {
+            val deserialisers = Deserialisers(tag, eventClass, deserializersList)
+            deserialisers.init()
+            return deserialisers
+        }
+
         inline fun <reified E: DomainEvent> event(init: Deserialisers<E>.() -> Unit): Deserialisers<E> {
             val deserialisers = Deserialisers(tag, E :: class, deserializersList)
             deserialisers.init()

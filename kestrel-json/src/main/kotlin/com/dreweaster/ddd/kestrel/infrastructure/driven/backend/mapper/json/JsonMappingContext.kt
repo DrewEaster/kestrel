@@ -8,6 +8,7 @@ import com.dreweaster.ddd.kestrel.domain.Persistable
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
 import java.io.IOException
+import kotlin.reflect.KClass
 
 interface JsonMapperBuilder<Data : Persistable> {
 
@@ -35,12 +36,15 @@ class MissingDeserialiserException(serialisedType: String, serialisedVersion: In
 
 class MissingSerialiserException(type: String) : MappingException("No serialiser found for type = '$type'")
 
+data class VersionMetadata(val type: String, val version: Int)
+
 class JsonMappingContext(mappers: List<JsonMapper<Persistable>>) : PersistableMappingContext {
 
     private val objectMapper: ObjectMapper = ObjectMapper()
 
     private var deserialisers: Map<Pair<String, Int>, (String) -> Persistable> = emptyMap()
     private var serialisers: Map<String, (Persistable) -> Pair<String, Int>> = emptyMap()
+    private var history: Map<String, List<VersionMetadata>> = emptyMap()
 
     init {
         init(mappers)
@@ -64,6 +68,10 @@ class JsonMappingContext(mappers: List<JsonMapper<Persistable>>) : PersistableMa
         )
     }
 
+    fun historyFor(currentEventType: String): List<VersionMetadata> {
+        return history[currentEventType] ?: emptyList()
+    }
+
     private fun init(configurers: List<JsonMapper<Persistable>>) {
         // TODO: Validate no clashes between registered mappers
         // e.g. what if two mappers try to convert to the same class?
@@ -79,13 +87,15 @@ class JsonMappingContext(mappers: List<JsonMapper<Persistable>>) : PersistableMa
         deserialisers = mappingConfigurations.fold(deserialisers) { acc, mappingConfiguration -> acc + mappingConfiguration.createDeserialisers() }
 
         serialisers = mappingConfigurations.fold(serialisers) { acc, mappingConfiguration -> acc + mappingConfiguration.createSerialiser() }
+
+        history = mappingConfigurations.fold(history) { acc, mappingConfiguration -> acc + (mappingConfiguration.currentClassName!! to mappingConfiguration.history) }
     }
 
     inner class MappingConfiguration<Data : Persistable> : JsonMapperBuilderFactory<Data>, JsonMapperBuilder<Data> {
 
         private var currentVersion: Int = 0
 
-        private var currentClassName: String? = null
+        var currentClassName: String? = null
 
         private var migrations: List<Migration> = emptyList()
 
@@ -93,9 +103,12 @@ class JsonMappingContext(mappers: List<JsonMapper<Persistable>>) : PersistableMa
 
         private var deserialiseFunction: ((ObjectNode) -> Data)? = null
 
+        var history: List<VersionMetadata> = emptyList()
+
         override fun migrateFormat(migration: ((ObjectNode) -> ObjectNode)): JsonMapperBuilder<Data> {
             migrations += FormatMigration(currentClassName!!, currentVersion, currentVersion + 1, migration)
             currentVersion += 1
+            history = history + VersionMetadata(currentClassName!!, currentVersion)
             return this
         }
 
@@ -104,6 +117,7 @@ class JsonMappingContext(mappers: List<JsonMapper<Persistable>>) : PersistableMa
             migrations += migration
             currentClassName = migration.toClassName
             currentVersion = migration.toVersion
+            history = history + VersionMetadata(currentClassName!!, currentVersion)
             return this
         }
 
@@ -115,6 +129,7 @@ class JsonMappingContext(mappers: List<JsonMapper<Persistable>>) : PersistableMa
         override fun create(initialClassName: String): JsonMapperBuilder<Data> {
             currentClassName = initialClassName
             currentVersion = 1
+            history = history + VersionMetadata(currentClassName!!, currentVersion)
             return this
         }
 

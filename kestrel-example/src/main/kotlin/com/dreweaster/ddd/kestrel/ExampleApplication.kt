@@ -8,6 +8,7 @@ import com.dreweaster.ddd.kestrel.domain.Aggregate
 import com.dreweaster.ddd.kestrel.domain.Persistable
 import com.dreweaster.ddd.kestrel.domain.AggregateState
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
+import com.dreweaster.ddd.kestrel.domain.DomainEventTag
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.*
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.backend.PostgresBackend
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.r2dbc.R2dbcDatabase
@@ -18,6 +19,7 @@ import com.dreweaster.ddd.kestrel.infrastructure.driven.readmodel.user.Immediate
 import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.events.*
 import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.state.ActiveUserMapper
 import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.state.LockedUserMapper
+import com.dreweaster.ddd.kestrel.infrastructure.driving.eventsource.KestrelExampleJsonEventMapper
 import com.dreweaster.ddd.kestrel.infrastructure.driving.eventsource.UserContextHttpEventSourceFactory
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.BoundedContextHttpEventSourceConfiguration
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.offset.PostgresOffsetTracker
@@ -81,12 +83,17 @@ object Application {
 
         val database = R2dbcDatabase(R2dbc(pool))
 
-        val mappingContext = JsonMappingContext(listOf(
-                UserRegisteredMapper,
-                UsernameChangedMapper,
-                PasswordChangedMapper,
-                FailedLoginAttemptsIncrementedMapper,
-                UserLockedMapper,
+
+        val userEventTag = DomainEventTag("user-event")
+        val jsonEventMappers = listOf(
+            KestrelExampleJsonEventMapper(userEventTag, UserRegisteredMapper),
+            KestrelExampleJsonEventMapper(userEventTag, UsernameChangedMapper),
+            KestrelExampleJsonEventMapper(userEventTag, PasswordChangedMapper),
+            KestrelExampleJsonEventMapper(userEventTag, FailedLoginAttemptsIncrementedMapper),
+            KestrelExampleJsonEventMapper(userEventTag, UserLockedMapper)
+        )
+
+        val mappingContext = JsonMappingContext(jsonEventMappers.map { it.mapper as JsonMapper<Persistable> } + listOf(
                 ActiveUserMapper,
                 LockedUserMapper
         ) as List<JsonMapper<Persistable>>)
@@ -103,7 +110,8 @@ object Application {
         val jobManager = ClusterAwareScheduler(LocalCluster)
         val offsetManager = PostgresOffsetTracker(database)
 
-        val streamSourceFactories = listOf(UserContextHttpEventSourceFactory(mappingContext))
+        val userContextEventSourceFactory = UserContextHttpEventSourceFactory(jsonEventMappers, mappingContext)
+        val streamSourceFactories = listOf(userContextEventSourceFactory)
         val streamSources = BoundedContextEventSources(streamSourceFactories.map {
             it.name to it.createHttpEventSource(
                 httpClient = HttpClient.create(),

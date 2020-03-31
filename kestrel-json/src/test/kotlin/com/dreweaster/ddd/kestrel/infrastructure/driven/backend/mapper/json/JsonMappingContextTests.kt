@@ -267,6 +267,23 @@ class JsonMappingContextTests : FeatureSpec() {
 
                 result.version shouldBe 8
             }
+
+            scenario("Returns migration history version metadata correctly") {
+                val history = context.historyFor("com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.EventWithComplexMigrationHistoryClassName3")
+
+                val expectedHistory = listOf(
+                    VersionMetadata(type = "com.dreweaster.kestrel.infrastructure.driven.backend.mapper.json.EventWithComplexMigrationHistoryClassName1", version = 1),
+                    VersionMetadata(type = "com.dreweaster.kestrel.infrastructure.driven.backend.mapper.json.EventWithComplexMigrationHistoryClassName1", version = 2),
+                    VersionMetadata(type = "com.dreweaster.kestrel.infrastructure.driven.backend.mapper.json.EventWithComplexMigrationHistoryClassName1", version = 3),
+                    VersionMetadata(type = "com.dreweaster.kestrel.infrastructure.driven.backend.mapper.json.EventWithComplexMigrationHistoryClassName1", version = 4),
+                    VersionMetadata(type = "com.dreweaster.kestrel.infrastructure.driven.backend.mapper.json.EventWithComplexMigrationHistoryClassName2", version = 5),
+                    VersionMetadata(type = "com.dreweaster.kestrel.infrastructure.driven.backend.mapper.json.EventWithComplexMigrationHistoryClassName2", version = 6),
+                    VersionMetadata(type = "com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.EventWithComplexMigrationHistoryClassName3", version = 7),
+                    VersionMetadata(type = "com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json.EventWithComplexMigrationHistoryClassName3", version = 8)
+                )
+
+                history shouldBe expectedHistory
+            }
         }
     }
 }
