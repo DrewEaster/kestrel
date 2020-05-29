@@ -1,92 +1,51 @@
 package com.dreweaster.ddd.kestrel.application
 
-import com.dreweaster.ddd.kestrel.application.pagination.Page
-import com.dreweaster.ddd.kestrel.application.pagination.Pageable
-import com.dreweaster.ddd.kestrel.domain.Aggregate
-import com.dreweaster.ddd.kestrel.domain.DomainEvent
-import com.dreweaster.ddd.kestrel.domain.DomainEventTag
-import com.dreweaster.ddd.kestrel.domain.ProcessManager
-import io.vavr.control.Try
+import com.dreweaster.ddd.kestrel.domain.*
+import reactor.core.publisher.Flux
+import reactor.core.publisher.Mono
 import java.time.Instant
 import kotlin.reflect.KClass
 
+// TODO: Introduce different backend interfaces - AggregateRootBackend and ProcessManagerBackend
 interface Backend {
 
-    suspend fun <E : DomainEvent, A: Aggregate<*,E,*>> persistAggregate(
+    fun <E : DomainEvent, A: Aggregate<*,E,*>> loadEvents(
+            aggregateType: A,
+            aggregateId: AggregateId): Flux<PersistedEvent<E>>
+
+    fun <E : DomainEvent, A: Aggregate<*,E,*>> loadEvents(
             aggregateType: A,
             aggregateId: AggregateId,
-            commandHandler: suspend (PersistedAggregate<E, A>) -> GeneratedEvents<E>): Try<List<PersistedEvent<E>>>
+            afterSequenceNumber: Long): Flux<PersistedEvent<E>>
 
-    suspend fun <E : DomainEvent, A: Aggregate<*,E,*>> loadEvents(
+    fun <S : AggregateState, A: Aggregate<*,*,S>> loadSnapshot(
             aggregateType: A,
-            aggregateId: AggregateId): List<PersistedEvent<E>>
+            aggregateId: AggregateId): Mono<Snapshot<S>>
 
-    suspend fun <E : DomainEvent, A: Aggregate<*,E,*>> loadEvents(
-            aggregateType: A,
-            aggregateId: AggregateId,
-            afterSequenceNumber: Long): List<PersistedEvent<E>>
-
-    suspend fun <E : DomainEvent, A: Aggregate<*,E,*>> saveEvents(
+    fun <E : DomainEvent, S: AggregateState, A: Aggregate<*,E,S>> saveEvents(
             aggregateType: A,
             aggregateId: AggregateId,
             causationId: CausationId,
             rawEvents: List<E>,
             expectedSequenceNumber: Long,
-            correlationId: CorrelationId? = null): List<PersistedEvent<E>>
+            correlationId: CorrelationId? = null,
+            snapshot: Snapshot<S>? = null): Flux<PersistedEvent<E>>
 
-    suspend fun <E : DomainEvent> loadEventStream(
+    fun <E : DomainEvent> fetchEventFeed(
             tags: Set<DomainEventTag>,
             afterOffset: Long,
-            batchSize: Int): EventStream
+            batchSize: Int): Mono<EventFeed>
 
-    suspend fun <E : DomainEvent> loadEventStream(
+    fun <E : DomainEvent> fetchEventFeed(
             tags: Set<DomainEventTag>,
             afterInstant: Instant,
-            batchSize: Int): EventStream
-
-    suspend fun <E: DomainEvent, P: ProcessManager<*,E,*>> persistProcessManagerEvent(
-            eventId: EventId,
-            rawEvent: E,
-            processManagerType: P,
-            processManagerCorrelationId: ProcessManagerCorrelationId,
-            causationId: CausationId)
-
-    suspend fun findIdsForProcessManagersAwaitingProcessing(pageable: Pageable): Page<ProcessManagerCorrelationId>
-
-    suspend fun <E: DomainEvent, P: ProcessManager<*,E,*>> executeProcessManager(
-            type: P,
-            id: ProcessManagerCorrelationId,
-            force: Boolean = false,
-            retryStrategy: ProcessManagerRetryStrategy,
-            processHandler: suspend (PersistedProcessManager<E,P>) -> ProcessManagerProcessingResult): ProcessManagerProcessingResult
+            batchSize: Int): Mono<EventFeed>
 }
 
-interface ProcessManagerRetryStrategy { fun retryAfter(totalRetriesAttempted: Int): Instant? }
-
-sealed class ProcessManagerProcessingResult
-object Continue: ProcessManagerProcessingResult()
-object Finished: ProcessManagerProcessingResult()
-object NothingToProcess: ProcessManagerProcessingResult()
-object AlreadyProcessed: ProcessManagerProcessingResult()
-data class Failed(val failureCode: String, val message: String? = null, val ex: Throwable?): ProcessManagerProcessingResult()
-
-data class GeneratedEvents<E: DomainEvent>(
-        val events: List<E>,
-        val causationId: CausationId,
-        val correlationId: CorrelationId? = null)
-
 object OptimisticConcurrencyException : RuntimeException()
+data class UnexpectedNumberOfRowsAffectedInUpdate(val expected: Int, val actual: Int) : RuntimeException()
 
-data class PersistedProcessManager<E: DomainEvent, P: ProcessManager<*,E,*>>(
-        val processManagerType: P,
-        val processManagerCorrelationId: ProcessManagerCorrelationId,
-        val processedEvents: List<Pair<EventId, E>>,
-        val nextEventToProcess: Pair<EventId, E>?)
-
-data class PersistedAggregate<E: DomainEvent, A: Aggregate<*,E,*>>(
-        val aggregateType: A,
-        val aggregateId: AggregateId,
-        val previousEvents: List<E>)
+data class Snapshot<S: AggregateState>(val version: Long, val state: S?, val causationIdHistory: List<CausationId>)
 
 data class PersistedEvent<E : DomainEvent>(
         val id: EventId,
@@ -100,15 +59,16 @@ data class PersistedEvent<E : DomainEvent>(
         val timestamp: Instant,
         val sequenceNumber: Long)
 
-data class EventStream(
-        val events: List<StreamEvent>,
+data class EventFeed(
+        val events: List<FeedEvent>,
         val tags: Set<DomainEventTag>,
-        val batchSize: Int,
-        val startOffset: Long?,
-        val endOffset: Long?,
-        val maxOffset: Long)
+        val pageSize: Int,
+        val pageStartOffset: Long?,
+        val pageEndOffset: Long?,
+        val queryMaxOffset: Long,
+        val globalMaxOffset: Long)
 
-data class StreamEvent(
+data class FeedEvent(
         val offset: Long,
         val id: EventId,
         val aggregateType: String,
@@ -117,10 +77,10 @@ data class StreamEvent(
         val correlationId: CorrelationId?,
         val eventType: String,
         val eventTag: DomainEventTag,
+        val eventVersion: Int,
         val timestamp: Instant,
         val sequenceNumber: Long,
-        val serialisedPayload: String,
-        val payloadContentType: SerialisationContentType)
+        val serialisedPayload: String)
 
 enum class SerialisationContentType(private val value: String) {
 
@@ -131,14 +91,14 @@ enum class SerialisationContentType(private val value: String) {
     }
 }
 
-interface EventPayloadMapper {
+interface PersistableMappingContext {
 
-    fun <E : DomainEvent> deserialiseEvent(serialisedPayload: String, serialisedEventType: String, serialisedEventVersion: Int): E
+    fun <Data : Persistable> deserialise(serialisedPayload: String, serialisedType: String, serialisedVersion: Int): Data
 
-    fun <E : DomainEvent> serialiseEvent(event: E): PayloadSerialisationResult
+    fun <Data: Persistable> serialise(data: Data): PersistableSerialisationResult
 }
 
-data class PayloadSerialisationResult(val payload: String, val contentType: SerialisationContentType, val version: Int)
+data class PersistableSerialisationResult(val payload: String, val contentType: SerialisationContentType, val version: Int)
 
 open class MappingException : RuntimeException {
 

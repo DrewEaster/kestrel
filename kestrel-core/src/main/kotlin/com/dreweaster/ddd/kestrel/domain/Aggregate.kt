@@ -5,15 +5,7 @@ import com.dreweaster.ddd.kestrel.application.UnsupportedEventInEdenBehaviour
 import io.vavr.control.Try
 import kotlin.reflect.KClass
 
-data class DomainEventTag(val value: String)
-
-interface DomainEvent {
-    val tag: DomainEventTag
-}
-
-interface DomainCommand
-
-interface AggregateState
+interface AggregateState: Persistable
 
 interface Aggregate<C: DomainCommand, E: DomainEvent, S: AggregateState> {
 

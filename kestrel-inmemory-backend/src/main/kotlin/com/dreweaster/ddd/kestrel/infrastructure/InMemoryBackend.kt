@@ -1,13 +1,17 @@
 package com.dreweaster.ddd.kestrel.infrastructure
 
 import com.dreweaster.ddd.kestrel.application.*
-import com.dreweaster.ddd.kestrel.application.pagination.Page
-import com.dreweaster.ddd.kestrel.application.pagination.Pageable
+import com.dreweaster.ddd.kestrel.application.AggregateId
+import com.dreweaster.ddd.kestrel.application.CausationId
+import com.dreweaster.ddd.kestrel.application.CorrelationId
+import com.dreweaster.ddd.kestrel.application.EventId
 import com.dreweaster.ddd.kestrel.domain.Aggregate
+import com.dreweaster.ddd.kestrel.domain.AggregateState
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
-import com.dreweaster.ddd.kestrel.domain.ProcessManager
-import io.vavr.control.Try
+import reactor.core.publisher.Flux
+import reactor.core.publisher.Mono
+import java.lang.UnsupportedOperationException
 import java.time.Instant
 import java.util.*
 import kotlin.reflect.KClass
@@ -16,57 +20,56 @@ open class InMemoryBackend : Backend {
 
     private var nextOffset: Long = 0L
 
-    private var events: List<Pair<*, *>> = emptyList()
+    private var events: List<Pair<PersistedEvent<*>, Long>> = emptyList()
+
+    private var snapshots: Map<AggregateId, PersistedSnapshot<*,*,*>> = emptyMap()
 
     fun clear() {
-        events = emptyList()
+        clearEvents()
+        clearSnapshots()
+        nextOffset = 0
     }
 
-    override suspend fun <E : DomainEvent, A : Aggregate<*, E, *>> persistAggregate(
-            aggregateType: A,
-            aggregateId: AggregateId,
-            commandHandler: suspend (PersistedAggregate<E, A>) -> GeneratedEvents<E>): Try<List<PersistedEvent<E>>> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    fun clearEvents(filter: (Pair<PersistedEvent<*>,Long>) -> Boolean = { true } ) {
+        events = events.filterNot(filter)
+        nextOffset = events.lastOrNull()?.let { it.second } ?: 0
     }
 
-    override suspend fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(
-            aggregateType: A,
-            aggregateId: AggregateId): List<PersistedEvent<E>> {
-        return persistedEventsFor(aggregateType, aggregateId)
+    fun clearSnapshots() {
+        snapshots = emptyMap()
     }
 
-    override suspend fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(
-            aggregateType: A,
-            aggregateId: AggregateId,
-            afterSequenceNumber: Long): List<PersistedEvent<E>> {
-        return persistedEventsFor(aggregateType, aggregateId).filter { it.sequenceNumber > afterSequenceNumber }
+    override fun <S : AggregateState, A : Aggregate<*, *, S>> loadSnapshot(aggregateType: A, aggregateId: AggregateId): Mono<Snapshot<S>> {
+        return snapshots[aggregateId]?.let { Mono.just(it.snapshot as Snapshot<S>)  } ?: Mono.empty()
     }
 
-    override suspend fun <E : DomainEvent, A : Aggregate<*, E, *>> saveEvents(
-            aggregateType: A,
-            aggregateId: AggregateId,
-            causationId: CausationId,
-            rawEvents: List<E>,
-            expectedSequenceNumber: Long,
-            correlationId: CorrelationId?): List<PersistedEvent<E>> {
+    override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId): Flux<PersistedEvent<E>> {
+        return Flux.fromIterable(persistedEventsFor(aggregateType, aggregateId))
+    }
 
+    override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId, afterSequenceNumber: Long): Flux<PersistedEvent<E>> {
+        return Flux.fromIterable(persistedEventsFor(aggregateType, aggregateId).filter { it.sequenceNumber > afterSequenceNumber })
+    }
+
+    override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> saveEvents(aggregateType: A, aggregateId: AggregateId, causationId: CausationId, rawEvents: List<E>, expectedSequenceNumber: Long, correlationId: CorrelationId?, snapshot: Snapshot<S>?): Flux<PersistedEvent<E>> {
         if (aggregateHasBeenModified(aggregateType, aggregateId, expectedSequenceNumber)) {
-            throw OptimisticConcurrencyException
+            return Flux.error(OptimisticConcurrencyException)
         }
 
         val persistedEvents = rawEvents.fold(Pair<Long, List<PersistedEvent<E>>>(expectedSequenceNumber + 1, emptyList())) { acc, e ->
             Pair(acc.first + 1, acc.second +
-                    PersistedEvent(
-                            EventId(UUID.randomUUID().toString()),
-                            aggregateType,
-                            aggregateId,
-                            causationId,
-                            correlationId,
-                            e::class as KClass<E>,
-                            1,
-                            e,
-                            Instant.now(),
-                            acc.first)
+                PersistedEvent(
+                    EventId(UUID.randomUUID().toString()),
+                    aggregateType,
+                    aggregateId,
+                    causationId,
+                    correlationId,
+                    e::class as KClass<E>,
+                    1,
+                    e,
+                    Instant.now(),
+                    acc.first
+                )
             )
         }.second
 
@@ -75,33 +78,19 @@ open class InMemoryBackend : Backend {
             nextOffset += 1
         }
 
-        return persistedEvents
+        snapshot?.let {
+            snapshots += (aggregateId to PersistedSnapshot(aggregateId, aggregateType, it))
+        }
+
+        return Flux.fromIterable(persistedEvents)
     }
 
-    override suspend fun <E : DomainEvent, P : ProcessManager<*, E, *>> persistProcessManagerEvent(eventId: EventId, rawEvent: E, processManagerType: P, processManagerCorrelationId: ProcessManagerCorrelationId, causationId: CausationId) {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    override fun <E : DomainEvent> fetchEventFeed(tags: Set<DomainEventTag>, afterOffset: Long, batchSize: Int): Mono<EventFeed> {
+        return Mono.error(UnsupportedOperationException())
     }
 
-    override suspend fun findIdsForProcessManagersAwaitingProcessing(pageable: Pageable): Page<ProcessManagerCorrelationId> {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
-    }
-
-    override suspend fun <E : DomainEvent, P : ProcessManager<*, E, *>> executeProcessManager(type: P, id: ProcessManagerCorrelationId, force: Boolean, retryStrategy: ProcessManagerRetryStrategy, processHandler: suspend (PersistedProcessManager<E, P>) -> ProcessManagerProcessingResult): ProcessManagerProcessingResult {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
-    }
-
-    suspend override fun <E : DomainEvent> loadEventStream(
-            tags: Set<DomainEventTag>,
-            afterOffset: Long,
-            batchSize: Int): EventStream {
-        throw UnsupportedOperationException()
-    }
-
-    suspend override fun <E : DomainEvent> loadEventStream(
-            tags: Set<DomainEventTag>,
-            afterInstant: Instant,
-            batchSize: Int): EventStream {
-        throw UnsupportedOperationException()
+    override fun <E : DomainEvent> fetchEventFeed(tags: Set<DomainEventTag>, afterInstant: Instant, batchSize: Int): Mono<EventFeed> {
+        return Mono.error(UnsupportedOperationException())
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -120,6 +109,11 @@ open class InMemoryBackend : Backend {
             expectedSequenceNumber: Long?): Boolean {
 
         return persistedEventsFor(aggregateType, aggregateId)
-                .lastOrNull()?.sequenceNumber?.equals(expectedSequenceNumber)?.not() == true
+            .lastOrNull()?.sequenceNumber?.equals(expectedSequenceNumber)?.not() == true
     }
+
+    data class PersistedSnapshot<E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>>(
+            val aggregateId: AggregateId,
+            val aggregateType: A,
+            val snapshot: Snapshot<S>)
 }

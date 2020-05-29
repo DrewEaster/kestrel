@@ -13,15 +13,30 @@ interface DomainModelReporter {
             aggregateType: Aggregate<C,E,S>, aggregateId: AggregateId): CommandHandlingProbe<C, E, S>
 }
 
+// TODO: Would be good to add a "snapshots persisted" callback
 interface CommandHandlingProbe<C : DomainCommand, E : DomainEvent, S: AggregateState> {
 
     fun startedHandling(command: CommandEnvelope<C>)
 
     fun startedRecoveringAggregate()
 
-    fun finishedRecoveringAggregate(previousEvents: List<E>, version: Long, state: S? = null)
+    fun finishedRecoveringAggregate(previousEvents: List<E>, version: Long, state: S? = null, snapshot: Snapshot<S>?)
 
     fun finishedRecoveringAggregate(unexpectedException: Throwable)
+
+    fun startedRecoveringSnapshot()
+
+    fun finishedRecoveringSnapshot()
+
+    fun finishedRecoveringSnapshot(unexpectedException: Throwable)
+
+    fun finishedRecoveringSnapshot(state: S, version: Long)
+
+    fun startedRecoveringPersistedEvents()
+
+    fun finishedRecoveringPersistedEvents()
+
+    fun finishedRecoveringPersistedEvents(unexpectedException: Throwable)
 
     fun startedApplyingCommand()
 
@@ -33,11 +48,11 @@ interface CommandHandlingProbe<C : DomainCommand, E : DomainEvent, S: AggregateS
 
     fun startedPersistingEvents(events: List<E>, expectedSequenceNumber: Long)
 
-    fun finishedPersistingEvents(persistedEvents: List<PersistedEvent<E>>)
+    fun finishedPersistingEvents()
 
     fun finishedPersistingEvents(unexpectedException: Throwable)
 
-    fun finishedHandling(result: CommandHandlingResult<E>)
+    fun finishedHandling(result: CommandHandlingResult<C, E, S>)
 }
 
 class ReportingContext<C : DomainCommand, E : DomainEvent, S: AggregateState>(
@@ -55,12 +70,40 @@ class ReportingContext<C : DomainCommand, E : DomainEvent, S: AggregateState>(
         probes.forEach { it.startedRecoveringAggregate() }
     }
 
-    override fun finishedRecoveringAggregate(previousEvents: List<E>, version: Long, state: S?) {
-        probes.forEach { it.finishedRecoveringAggregate(previousEvents, version, state) }
+    override fun finishedRecoveringAggregate(previousEvents: List<E>, version: Long, state: S?, snapshot: Snapshot<S>?) {
+        probes.forEach { it.finishedRecoveringAggregate(previousEvents, version, state, snapshot) }
     }
 
     override fun finishedRecoveringAggregate(unexpectedException: Throwable) {
         probes.forEach { probe -> probe.finishedRecoveringAggregate(unexpectedException) }
+    }
+
+    override fun startedRecoveringSnapshot() {
+        probes.forEach { probe -> probe.startedRecoveringSnapshot() }
+    }
+
+    override fun finishedRecoveringSnapshot() {
+        probes.forEach { probe -> probe.finishedRecoveringSnapshot() }
+    }
+
+    override fun finishedRecoveringSnapshot(unexpectedException: Throwable) {
+        probes.forEach { probe -> probe.finishedRecoveringSnapshot(unexpectedException) }
+    }
+
+    override fun finishedRecoveringSnapshot(state: S, version: Long) {
+        probes.forEach { probe -> probe.finishedRecoveringSnapshot(state, version) }
+    }
+
+    override fun startedRecoveringPersistedEvents() {
+        probes.forEach { probe -> probe.startedRecoveringPersistedEvents() }
+    }
+
+    override fun finishedRecoveringPersistedEvents() {
+        probes.forEach { probe -> probe.finishedRecoveringPersistedEvents() }
+    }
+
+    override fun finishedRecoveringPersistedEvents(unexpectedException: Throwable) {
+        probes.forEach { probe -> probe.finishedRecoveringPersistedEvents(unexpectedException) }
     }
 
     override fun startedApplyingCommand() {
@@ -83,15 +126,15 @@ class ReportingContext<C : DomainCommand, E : DomainEvent, S: AggregateState>(
         probes.forEach { it.startedPersistingEvents(events, expectedSequenceNumber) }
     }
 
-    override fun finishedPersistingEvents(persistedEvents: List<PersistedEvent<E>>) {
-        probes.forEach { it.finishedPersistingEvents(persistedEvents) }
+    override fun finishedPersistingEvents() {
+        probes.forEach { it.finishedPersistingEvents() }
     }
 
     override fun finishedPersistingEvents(unexpectedException: Throwable) {
         probes.forEach { it.finishedPersistingEvents(unexpectedException) }
     }
 
-    override fun finishedHandling(result: CommandHandlingResult<E>) {
+    override fun finishedHandling(result: CommandHandlingResult<C,E,S>) {
         probes.forEach { it.finishedHandling(result) }
     }
 }
@@ -108,12 +151,40 @@ object ConsoleReporter : DomainModelReporter {
             println("Started recovering aggregate")
         }
 
-        override fun finishedRecoveringAggregate(previousEvents: List<E>, version: Long, state: S?) {
-            println("Successfully recovered aggregate: version = $version, events = $previousEvents, currentState = $state")
+        override fun finishedRecoveringAggregate(previousEvents: List<E>, version: Long, state: S?, snapshot: Snapshot<S>?) {
+            println("Successfully recovered aggregate: version = $version, events = $previousEvents, currentState = $state, snapshot = $snapshot")
         }
 
         override fun finishedRecoveringAggregate(unexpectedException: Throwable) {
             println("Failed to recover aggregate: $unexpectedException")
+        }
+
+        override fun startedRecoveringSnapshot() {
+            println("Started recovering snapshot")
+        }
+
+        override fun finishedRecoveringSnapshot() {
+            println("No snapshot exists")
+        }
+
+        override fun finishedRecoveringSnapshot(unexpectedException: Throwable) {
+            println("Failed to recover snapshot: $unexpectedException")
+        }
+
+        override fun finishedRecoveringSnapshot(state: S, version: Long) {
+            println("Successfully recovered snapshot with version $version: $state")
+        }
+
+        override fun startedRecoveringPersistedEvents() {
+            println("Started recovering persisted events")
+        }
+
+        override fun finishedRecoveringPersistedEvents() {
+            println("Successfully recovered persisted events")
+        }
+
+        override fun finishedRecoveringPersistedEvents(unexpectedException: Throwable) {
+            println("Failed to recover persisted events: $unexpectedException")
         }
 
         override fun startedApplyingCommand() {
@@ -136,15 +207,15 @@ object ConsoleReporter : DomainModelReporter {
             println("Started persisting generated events: expectedVersion = $expectedSequenceNumber, events = $events")
         }
 
-        override fun finishedPersistingEvents(persistedEvents: List<PersistedEvent<E>>) {
-            println("Successfully persisted events: $persistedEvents")
+        override fun finishedPersistingEvents() {
+            println("Successfully persisted events")
         }
 
         override fun finishedPersistingEvents(unexpectedException: Throwable) {
             println("Failed to persist events: $unexpectedException")
         }
 
-        override fun finishedHandling(result: CommandHandlingResult<E>) {
+        override fun finishedHandling(result: CommandHandlingResult<C,E,S>) {
             println("Finished command handling with result: $result")
         }
     }
