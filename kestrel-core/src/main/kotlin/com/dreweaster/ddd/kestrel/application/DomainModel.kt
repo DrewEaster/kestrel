@@ -25,8 +25,8 @@ sealed class CommandHandlingResult<C: DomainCommand, E: DomainEvent, S: Aggregat
 }
 data class SuccessResult<C: DomainCommand, E: DomainEvent, S: AggregateState> (override val aggregateId: AggregateId, override val aggregateType: Aggregate<C,E,S>, override val command: CommandEnvelope<C>, override val currentState: S?, val generatedEvents: List<E>, val deduplicated: Boolean = false) : CommandHandlingResult<C,E,S>(aggregateId, aggregateType)
 data class RejectionResult<C: DomainCommand, E: DomainEvent, S: AggregateState>(override val aggregateId: AggregateId, override val aggregateType: Aggregate<C,E,S>,override val command: CommandEnvelope<C>, override val currentState: S?, val error: Throwable, val deduplicated: Boolean = false) : CommandHandlingResult<C,E,S>(aggregateId, aggregateType)
-class ConcurrentModificationResult<C: DomainCommand, E: DomainEvent, S: AggregateState>(override val aggregateId: AggregateId, override val aggregateType: Aggregate<C,E,S>,override val command: CommandEnvelope<C>, override val currentState: S?) : CommandHandlingResult<C,E,S>(aggregateId, aggregateType)
-class UnexpectedExceptionResult<C: DomainCommand, E: DomainEvent, S: AggregateState>(override val aggregateId: AggregateId, override val aggregateType: Aggregate<C,E,S>,override val command: CommandEnvelope<C>, override val currentState: S?, val ex: Throwable): CommandHandlingResult<C,E,S>(aggregateId, aggregateType)
+data class ConcurrentModificationResult<C: DomainCommand, E: DomainEvent, S: AggregateState>(override val aggregateId: AggregateId, override val aggregateType: Aggregate<C,E,S>,override val command: CommandEnvelope<C>, override val currentState: S?) : CommandHandlingResult<C,E,S>(aggregateId, aggregateType)
+data class UnexpectedExceptionResult<C: DomainCommand, E: DomainEvent, S: AggregateState>(override val aggregateId: AggregateId, override val aggregateType: Aggregate<C,E,S>,override val command: CommandEnvelope<C>, override val currentState: S?, val ex: Throwable): CommandHandlingResult<C,E,S>(aggregateId, aggregateType)
 
 // General errors
 object UnsupportedCommandInEdenBehaviour : RuntimeException()
@@ -57,4 +57,8 @@ interface DomainModel {
     fun <C: DomainCommand, E: DomainEvent, S: AggregateState> aggregateRootOf(
             aggregateType: Aggregate<C,E,S>,
             aggregateId: AggregateId = AggregateId()): AggregateRoot<C,E,S>
+
+    fun addReporter(reporter: DomainModelReporter)
+
+    fun removeReporter(reporter: DomainModelReporter)
 }

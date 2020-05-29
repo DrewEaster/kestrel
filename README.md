@@ -4,9 +4,9 @@ Simple DDD toolkit for Kotlin
 TODO
 ====
 
-* Spring Kofu example
 * Complete the reactive refactor
     * Testing different failure scenarios
+    * Add reporters back in
 * General testing
     * HTTP event sources
     * Database backend

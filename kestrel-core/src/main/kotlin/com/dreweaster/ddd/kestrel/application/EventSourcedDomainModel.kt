@@ -5,6 +5,7 @@ import com.dreweaster.ddd.kestrel.domain.AggregateState
 import com.dreweaster.ddd.kestrel.domain.DomainCommand
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import io.vavr.control.Try
+import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 
 interface EventSourcingConfiguration {
@@ -18,43 +19,80 @@ class EventSourcedDomainModel(
         private val backend: Backend,
         private val eventSourcingConfiguration: EventSourcingConfiguration) : DomainModel {
 
+    private var reporters: List<DomainModelReporter> = emptyList()
+
+    override fun addReporter(reporter: DomainModelReporter) {
+        reporters += reporter
+    }
+
+    override fun removeReporter(reporter: DomainModelReporter) {
+        reporters -= reporter
+    }
+
     override fun <C : DomainCommand, E : DomainEvent, S : AggregateState> aggregateRootOf(
             aggregateType: Aggregate<C, E, S>,
             aggregateId: AggregateId): AggregateRoot<C, E, S> {
-        return DeduplicatingCommandHandler(aggregateType, aggregateId)
+
+        val reportingContext = ReportingContext(aggregateType, aggregateId, reporters)
+        return DeduplicatingCommandHandler(aggregateType, aggregateId, reportingContext)
     }
 
     inner class DeduplicatingCommandHandler<C : DomainCommand, E : DomainEvent, S : AggregateState>(
             private val aggregateType: Aggregate<C,E,S>,
-            private val aggregateId: AggregateId) : AggregateRoot<C, E, S> {
+            private val aggregateId: AggregateId,
+            private val reportingContext: ReportingContext<C,E,S>) : AggregateRoot<C, E, S> {
 
         override fun currentState(): Mono<S> {
             return recoverAggregate().map { it.recoveredState }
         }
 
         override fun handleCommandEnvelope(commandEnvelope: CommandEnvelope<C>): Mono<CommandHandlingResult<C, E, S>> {
+            reportingContext.startedHandling(commandEnvelope)
             return recoverAggregate().flatMap { recoverableAggregate ->
                 applyCommand(commandEnvelope, recoverableAggregate)
                     .flatMap { if(commandEnvelope.dryRun) Mono.just(it.second) else persistEvents(it.first, it.second) }
                     .onErrorResume(errorHandler(commandEnvelope, recoverableAggregate))
-            }.onErrorResume { Mono.just(UnexpectedExceptionResult(aggregateId, aggregateType, commandEnvelope, null, it)) }
+
+            }.onErrorResume { Mono.just(UnexpectedExceptionResult(aggregateId, aggregateType, commandEnvelope, null, it))
+            }.doOnSuccess { result -> reportingContext.finishedHandling(result) }
         }
 
         private fun recoverAggregate(): Mono<RecoverableAggregate<C, E, S>> {
-            return backend.loadSnapshot(aggregateType, aggregateId).defaultIfEmpty(Snapshot(-1, null, emptyList())).flatMap { snapshot ->
-                backend.loadEvents(aggregateType, aggregateId, snapshot.version)
-                    .reduce(RecoverableAggregate(
-                        aggregateId = aggregateId,
-                        aggregateType =  aggregateType,
-                        recoveredSnapshot = snapshot,
-                        commandDeduplicationThreshold = eventSourcingConfiguration.commandDeduplicationThresholdFor(aggregateType),
-                        snapshotThreshold = eventSourcingConfiguration.snapshotThresholdFor(aggregateType)
-                    )) { aggregate, evt -> aggregate.apply(evt) }
-            }
+            reportingContext.startedRecoveringAggregate()
+            return recoverSnapshot().flatMap { snapshot ->
+                recoverEvents(afterSequenceNumber = snapshot.version).reduce(RecoverableAggregate(
+                    aggregateId = aggregateId,
+                    aggregateType =  aggregateType,
+                    recoveredSnapshot = snapshot,
+                    commandDeduplicationThreshold = eventSourcingConfiguration.commandDeduplicationThresholdFor(aggregateType),
+                    snapshotThreshold = eventSourcingConfiguration.snapshotThresholdFor(aggregateType)
+                )) { aggregate, evt -> aggregate.apply(evt) }
+            }.doOnSuccess { ra -> reportingContext.finishedRecoveringAggregate(ra.eventHistory.map { it.rawEvent }, ra.recoveredVersion, ra.recoveredState, ra.recoveredSnapshot)
+            }.doOnError { ex -> reportingContext.finishedRecoveringAggregate(ex) }
+        }
+
+        private fun recoverSnapshot(): Mono<Snapshot<S>> {
+            reportingContext.startedRecoveringSnapshot()
+            return backend.loadSnapshot(aggregateType, aggregateId).defaultIfEmpty(Snapshot(-1, null, emptyList()))
+                .doOnSuccess {
+                    when(it.state) {
+                        null -> reportingContext.finishedRecoveringSnapshot()
+                        else -> reportingContext.finishedRecoveringSnapshot(it.state, it.version)
+                    }
+                }
+                .doOnError { reportingContext.finishedRecoveringSnapshot(it) }
+        }
+
+        private fun recoverEvents(afterSequenceNumber: Long): Flux<PersistedEvent<E>> {
+            reportingContext.startedRecoveringPersistedEvents()
+            return backend.loadEvents(aggregateType, aggregateId, afterSequenceNumber)
+                .doOnComplete { reportingContext.finishedRecoveringPersistedEvents() }
+                .doOnError { reportingContext.finishedRecoveringPersistedEvents(it) }
         }
 
         private fun persistEvents(aggregate: RecoverableAggregate<C, E, S>, result: CommandHandlingResult<C, E, S>): Mono<out CommandHandlingResult<C, E, S>> {
             return if(result is SuccessResult && result.generatedEvents.isNotEmpty()) {
+                reportingContext.startedPersistingEvents(result.generatedEvents, aggregate.recoveredVersion)
                 backend.saveEvents(
                     aggregateType = aggregateType,
                     aggregateId = aggregateId,
@@ -63,15 +101,17 @@ class EventSourcedDomainModel(
                     expectedSequenceNumber = aggregate.recoveredVersion,
                     correlationId = result.command.correlationId,
                     snapshot = aggregate.maybeCreateSnapshot()
-                ).then(Mono.just(result))
+                ).doOnComplete { reportingContext.finishedPersistingEvents()
+                }.doOnError { reportingContext.finishedPersistingEvents(it) }.then(Mono.just(result))
             } else Mono.just(result)
         }
 
         private fun applyCommand(commandEnvelope: CommandEnvelope<C>, aggregate: RecoverableAggregate<C, E, S>): Mono<Pair<RecoverableAggregate<C, E, S>, CommandHandlingResult<C, E, S>>> {
+            reportingContext.startedApplyingCommand()
             return when {
                 aggregate.isNew -> applyEdenCommand(aggregate, commandEnvelope)
                 else -> applyNonEdenCommand(aggregate, commandEnvelope)
-            }
+            }.doOnSuccess(this::logCommandApplicationResult).doOnError { reportingContext.commandApplicationFailed(it) }
         }
 
         private fun applyEdenCommand(aggregate: RecoverableAggregate<C, E, S>, commandEnvelope: CommandEnvelope<C>): Mono<Pair<RecoverableAggregate<C, E, S>, CommandHandlingResult<C, E, S>>>{
@@ -124,6 +164,26 @@ class EventSourcedDomainModel(
                     Mono.just(aggregate to SuccessResult(aggregateId, aggregateType, commandEnvelope, updatedState, generatedEvents)) as  Mono<Pair<RecoverableAggregate<C, E, S>, CommandHandlingResult<C, E, S>>>
                 }
                 else -> Mono.just(aggregate to RejectionResult<C, E, S>(aggregateId, aggregateType, commandEnvelope, aggregate.recoveredState, result.cause)) as Mono<Pair<RecoverableAggregate<C, E, S>, CommandHandlingResult<C, E, S>>>
+            }
+        }
+
+        private fun logCommandApplicationResult(result: Pair<RecoverableAggregate<C, E, S>, CommandHandlingResult<C, E, S>>) {
+            when(result.second) {
+                is SuccessResult<C,E,S> -> {
+                    val successResult = result.second as SuccessResult<C,E,S>
+                    reportingContext.commandApplicationAccepted(successResult.generatedEvents, successResult.deduplicated)
+                }
+                is RejectionResult<C,E,S> -> {
+                    val rejectionResult = result.second as RejectionResult<C,E,S>
+                    reportingContext.commandApplicationRejected(rejectionResult.error, rejectionResult.deduplicated)
+                }
+                is ConcurrentModificationResult<C,E,S> -> {
+                    reportingContext.commandApplicationFailed(OptimisticConcurrencyException)
+                }
+                is UnexpectedExceptionResult<C,E,S> -> {
+                    val unexpectedExceptionResult = result.second as UnexpectedExceptionResult<C,E,S>
+                    reportingContext.commandApplicationFailed(unexpectedExceptionResult.ex)
+                }
             }
         }
 

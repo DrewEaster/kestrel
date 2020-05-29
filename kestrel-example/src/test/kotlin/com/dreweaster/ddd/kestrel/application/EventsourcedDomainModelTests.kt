@@ -1,5 +1,6 @@
 package com.dreweaster.ddd.kestrel.application
 
+import com.dreweaster.ddd.kestrel.application.reporting.micrometer.MicrometerDomainModelReporter
 import com.dreweaster.ddd.kestrel.domain.Aggregate
 import com.dreweaster.ddd.kestrel.domain.AggregateState
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
@@ -8,7 +9,9 @@ import com.dreweaster.ddd.kestrel.infrastructure.InMemoryBackend
 import io.kotlintest.matchers.instanceOf
 import io.kotlintest.matchers.shouldBe
 import io.kotlintest.specs.WordSpec
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import reactor.core.publisher.Flux
+import reactor.core.publisher.Mono
 
 // TODO: Test Eden command and event handling
 // TODO: Determine if current approach to not supporting eden commands and events outside of edenBehaviour is actually correct feature
@@ -22,13 +25,18 @@ class EventsourcedDomainModelTests : WordSpec() {
 
     override val oneInstancePerTest = true
 
+    val meterRegistry = SimpleMeterRegistry()
+
     init {
         backend.clear()
-        backend.toggleLoadErrorStateOff()
+        backend.toggleLoadSnapshotErrorStateOff()
+        backend.toggleLoadEventsErrorStateOff()
         backend.toggleSaveErrorStateOff()
         backend.toggleOffOptimisticConcurrencyExceptionOnSave()
         eventSourcingConfiguration.toggleDeduplicationOn()
         eventSourcingConfiguration.resetSnapshotThreshold()
+        domainModel.addReporter(ConsoleReporter)
+        domainModel.addReporter(MicrometerDomainModelReporter(meterRegistry))
 
         "An AggregateRoot" should {
             "be createable for the first time" {
@@ -154,7 +162,7 @@ class EventsourcedDomainModelTests : WordSpec() {
 
             "propagate error if backend fails to load events when handling a command" {
                 // Given
-                backend.toggleLoadErrorStateOn()
+                backend.toggleLoadEventsErrorStateOn()
                 val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
 
                 // When
@@ -249,6 +257,18 @@ class EventsourcedDomainModelTests : WordSpec() {
                 userState.password shouldBe "changedPassword4"
                 userState.failedLoginAttempts shouldBe 1
             }
+
+            "propagate error if backend fails to load snapshot when handling a command" {
+                // Given
+                backend.toggleLoadSnapshotErrorStateOn()
+                val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
+
+                // When
+                val result = user.handleCommand(RegisterUser(username = "joebloggs", password = "password")).block()
+
+                // Then
+                (result as UnexpectedExceptionResult).ex shouldBe instanceOf(IllegalStateException::class)
+            }
         }
     }
 }
@@ -289,7 +309,9 @@ class SwitchableEventSourcingConfiguration : EventSourcingConfiguration {
 
 class MockBackend : InMemoryBackend() {
 
-    private var loadErrorState = false
+    private var loadEventsErrorState = false
+
+    private var loadSnapshotErrorState = false
 
     private var saveErrorState = false
 
@@ -303,12 +325,20 @@ class MockBackend : InMemoryBackend() {
         optimisticConcurrencyExceptionOnSave = false
     }
 
-    fun toggleLoadErrorStateOn() {
-        loadErrorState = true
+    fun toggleLoadEventsErrorStateOn() {
+        loadEventsErrorState = true
     }
 
-    fun toggleLoadErrorStateOff() {
-        loadErrorState = false
+    fun toggleLoadEventsErrorStateOff() {
+        loadEventsErrorState = false
+    }
+
+    fun toggleLoadSnapshotErrorStateOn() {
+        loadSnapshotErrorState = true
+    }
+
+    fun toggleLoadSnapshotErrorStateOff() {
+        loadSnapshotErrorState = false
     }
 
     fun toggleSaveErrorStateOn() {
@@ -320,17 +350,24 @@ class MockBackend : InMemoryBackend() {
     }
 
     override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId): Flux<PersistedEvent<E>> {
-        if (loadErrorState) {
+        if (loadEventsErrorState) {
             return Flux.error(IllegalStateException())
         }
         return super.loadEvents(aggregateType, aggregateId)
     }
 
     override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId, afterSequenceNumber: Long): Flux<PersistedEvent<E>> {
-        if (loadErrorState) {
+        if (loadEventsErrorState) {
             return Flux.error(IllegalStateException())
         }
         return super.loadEvents(aggregateType, aggregateId, afterSequenceNumber)
+    }
+
+    override fun <S : AggregateState, A : Aggregate<*, *, S>> loadSnapshot(aggregateType: A, aggregateId: AggregateId): Mono<Snapshot<S>> {
+        if (loadSnapshotErrorState) {
+            return Mono.error(IllegalStateException())
+        }
+        return super.loadSnapshot(aggregateType, aggregateId)
     }
 
     override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> saveEvents(aggregateType: A, aggregateId: AggregateId, causationId: CausationId, rawEvents: List<E>, expectedSequenceNumber: Long, correlationId: CorrelationId?, snapshot: Snapshot<S>?): Flux<PersistedEvent<E>> {

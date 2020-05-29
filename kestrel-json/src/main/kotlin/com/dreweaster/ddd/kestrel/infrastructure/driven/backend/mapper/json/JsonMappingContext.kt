@@ -149,7 +149,7 @@ class JsonMappingContext(mappers: List<JsonMapper<Persistable>>) : PersistableMa
             }
 
             // Include the 'current' version deserialiser
-            deserialisers += (Pair(currentClassName!!, currentVersion) to { serialisedData ->
+            deserialisers += (Pair(currentClassName!!, currentVersion) to { serialisedData: String ->
                 val root = stringToObjectNode(serialisedData)
                 deserialiseFunction!!(root)
             })
