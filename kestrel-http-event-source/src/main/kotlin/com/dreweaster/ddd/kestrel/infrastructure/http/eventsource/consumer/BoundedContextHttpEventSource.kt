@@ -97,6 +97,18 @@ class BoundedContextHttpEventSource(
         acc + (mapper.sourceEventType to (deserialisers + (mapper.sourceEventVersion to { serialisedPayload: String -> mapper.map(serialisedPayload, mapper.sourceEventType, mapper.sourceEventVersion)})))
     }
 
+    private var reporters: List<BoundedContextHttpEventSourceReporter> = emptyList()
+
+    fun addReporter(reporter: BoundedContextHttpEventSourceReporter): BoundedContextHttpEventSource {
+        reporters += reporter
+        return this
+    }
+
+    fun removeReporter(reporter: BoundedContextHttpEventSourceReporter): BoundedContextHttpEventSource {
+        reporters -= reporter
+        return this
+    }
+
     override fun subscribe(handlers: Map<KClass<out DomainEvent>, ((DomainEvent, EventMetadata) -> Mono<Void>)>, subscriberConfiguration: BoundedContextSubscriberConfiguration) {
         val allTags = handlers.keys.map { targetClassToEventTag[it] ?: throw IllegalArgumentException("Unsupported event type: ${it.qualifiedName}") }.toSet()
 
@@ -122,6 +134,8 @@ class BoundedContextHttpEventSource(
 
         override val name = "${this@BoundedContextHttpEventSource.name.name}_${subscriberConfiguration.name}"
 
+        private val probe = ReportingContext(this@BoundedContextHttpEventSource.name, name, reporters)
+
         private val requestFactory = HttpEventSourceSubscriptionEdenPolicy.from(subscriberConfiguration.edenPolicy)
             .newRequestFactory(
                 subscriberConfiguration = configuration,
@@ -130,24 +144,44 @@ class BoundedContextHttpEventSource(
 
         // TODO: Arguably a little inefficient in that it updates offset after handling each event rather than in batches. Does reduce volume of redeliveries, though
         override fun execute(): Mono<Boolean> {
+            probe.startedConsuming()
             return fetchOffset()
                 .flatMap ( fetchEventSourcePage )
                 .flatMap { processEvents(it).then(Mono.just(hasBacklog(it.second))) }
+                .doOnSuccess { probe.finishedConsuming() }
+                .doOnError { probe.finishedConsuming(it) }
         }
 
         private val handleEvent: (SourceEvent) -> Mono<Void> = { event ->
-            val mapper = sourceEventTypeToMapper[event.type]?.get(event.version)
-            val result = if(mapper != null) {
+
+            fun invokeEventHandler(mapper: (SerialisedEventPayload) -> DomainEvent): Mono<Void> {
                 val rawEvent = mapper(event.payload)
                 val eventHandler = eventHandlers[rawEvent::class]
-                eventHandler?.invoke(rawEvent, event.metadata) ?: Mono.empty()
-            } else handleUnrecognisedSourceEvent(event)
+                return eventHandler?.invoke(rawEvent, event.metadata) ?: Mono.empty()
+            }
+
+            probe.startedHandlingEvent(event)
+            val result = when(val mapper = sourceEventTypeToMapper[event.type]?.get(event.version)) {
+                null -> {
+                    handleUnrecognisedSourceEvent(event)
+                        .doOnSuccess { probe.finishedHandlingEvent(ignored = true) }
+                        .doOnError { probe.finishedHandlingEvent(it) }
+                }
+                else -> {
+                    invokeEventHandler(mapper)
+                        .doOnSuccess { probe.finishedHandlingEvent() }
+                        .doOnError { probe.finishedHandlingEvent(it) }
+                }
+            }
 
             result.then(Mono.just(event.offset)).flatMap(saveOffset)
         }
 
         private val saveOffset: (Long) -> Mono<Void> = { offset ->
+            probe.startedSavingOffset()
             offsetTracker.saveOffset(name, offset)
+                .doOnSuccess { probe.finishedSavingOffset(offset) }
+                .doOnError { probe.finishedSavingOffset(it) }
         }
 
         private fun handleUnrecognisedSourceEvent(event: SourceEvent): Mono<Void> {
@@ -161,7 +195,12 @@ class BoundedContextHttpEventSource(
             }
         }
 
-        private fun fetchOffset(): Mono<out Offset> = offsetTracker.getOffset(name)
+        private fun fetchOffset(): Mono<out Offset> {
+            probe.startedFetchingOffset()
+            return offsetTracker.getOffset(name)
+                .doOnSuccess { probe.finishedFetchingOffset(it) }
+                .doOnError { probe.finishedFetchingOffset(it) }
+        }
 
         private val fetchEventSourcePage: (Offset) -> Mono<Pair<Offset, EventSourcePage>> = { eventSourceOffset ->
             val offset = when(eventSourceOffset) {
@@ -169,9 +208,11 @@ class BoundedContextHttpEventSource(
                 else -> null
             }
 
+            probe.startedFetchingEventSourcePage()
             requestFactory.createRequest(offset)(httpClient).map {
                 eventSourceOffset to EventSourcePage(it, configuration.batchSizeFor(subscriberConfiguration.name))
-            }
+            }.doOnSuccess { probe.finishedFetchingEventSourcePage(it.first, it.second)
+            }.doOnError { probe.finishedFetchingEventSourcePage(it) }
         }
 
         private fun processEvents(page: Pair<Offset, EventSourcePage>): Mono<Void> {

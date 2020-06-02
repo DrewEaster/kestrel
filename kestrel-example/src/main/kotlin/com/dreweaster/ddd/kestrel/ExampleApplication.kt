@@ -4,6 +4,8 @@ import com.dreweaster.ddd.kestrel.application.*
 import com.dreweaster.ddd.kestrel.application.processmanager.stateless.HelloNewUser
 import com.dreweaster.ddd.kestrel.application.processmanager.stateless.WarnUserLocked
 import com.dreweaster.ddd.kestrel.application.readmodel.user.UserDTO
+import com.dreweaster.ddd.kestrel.application.reporting.micrometer.MicrometerBoundedContextHttpEventSourceReporter
+import com.dreweaster.ddd.kestrel.application.reporting.micrometer.MicrometerDomainModelReporter
 import com.dreweaster.ddd.kestrel.domain.Aggregate
 import com.dreweaster.ddd.kestrel.domain.Persistable
 import com.dreweaster.ddd.kestrel.domain.AggregateState
@@ -33,6 +35,8 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
+import io.micrometer.prometheus.PrometheusConfig
+import io.micrometer.prometheus.PrometheusMeterRegistry
 import io.netty.handler.codec.http.HttpHeaderNames.*
 import io.netty.handler.codec.http.HttpResponseStatus.*
 import io.netty.handler.codec.http.QueryStringDecoder
@@ -103,22 +107,26 @@ object Application {
             override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> snapshotThresholdFor(aggregateType: Aggregate<*, E, S>) = 1
         }
 
+        val meterRegistry = PrometheusMeterRegistry(PrometheusConfig.DEFAULT)
+        val domainModelReporter = MicrometerDomainModelReporter(meterRegistry)
         val config = ConfigFactory.load()
         val userReadModel = ImmediatelyConsistentUserProjection(database)
         val backend = PostgresBackend(database, mappingContext, listOf(userReadModel))
         val domainModel = EventSourcedDomainModel(backend, eventSourcingConfiguration)
+        domainModel.addReporter(domainModelReporter)
         val jobManager = ClusterAwareScheduler(LocalCluster)
         val offsetManager = PostgresOffsetTracker(database)
 
         val userContextEventSourceFactory = UserContextHttpEventSourceFactory(jsonEventMappers, mappingContext)
         val streamSourceFactories = listOf(userContextEventSourceFactory)
+        val boundedContextHttpEventSourceReporter = MicrometerBoundedContextHttpEventSourceReporter(meterRegistry)
         val streamSources = BoundedContextEventSources(streamSourceFactories.map {
             it.name to it.createHttpEventSource(
                 httpClient = HttpClient.create(),
                 configuration = createHttpEventSourceConfiguration(it.name, config),
                 jobManager = jobManager,
                 offsetTracker = offsetManager
-            )
+            ).addReporter(boundedContextHttpEventSourceReporter)
         })
 
         // Start process managers
@@ -166,6 +174,13 @@ object Application {
                                 else -> Mono.just(result.aggregateId)
                             }}
                         ) { id -> jsonObject("id" to id.value)} // TODO: Error handling
+                    }
+                    .get("/metrics") { request, response ->
+                        with(response) {
+                            status(OK)
+                            header(CONTENT_TYPE, "text/plain")
+                            sendString(Mono.just(meterRegistry.scrape()))
+                        }
                     }
             }.bindNow()
 
