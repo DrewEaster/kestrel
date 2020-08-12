@@ -15,7 +15,7 @@ class WarnUserLocked constructor(boundedContexts: BoundedContextEventSources): S
     init {
         processManager(name = "warn-user-locked") {
 
-            subscribe(context = UserContext, edenPolicy = BEGINNING_OF_TIME) {
+            subscribe(name = "user-lockouts", context = UserContext, edenPolicy = BEGINNING_OF_TIME) {
 
                 event<UserLocked> { _, metadata ->
                     fromRunnable { LOG.warn("User ${metadata.aggregateId} was locked!") }

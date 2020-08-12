@@ -19,11 +19,11 @@ abstract class StatelessProcessManager(val boundedContexts: BoundedContextEventS
             subscribers.forEach { subscriber ->
                 boundedContexts[subscriber.boundedContextName]?.subscribe(
                     subscriber.eventHandlersBuilder.build(),
-                        BoundedContextSubscriberConfiguration(subscriber.name, subscriber.edenPolicy))
+                        BoundedContextSubscriberConfiguration("${name}_${subscriber.name}", subscriber.edenPolicy))
             }
         }
 
-        fun subscribe(context: BoundedContextName, edenPolicy: BoundedContextSubscriptionEdenPolicy, init: Subscriber.() -> Unit): Subscriber {
+        fun subscribe(name: String, context: BoundedContextName, edenPolicy: BoundedContextSubscriptionEdenPolicy, init: Subscriber.() -> Unit): Subscriber {
             val eventHandlersBuilder = BoundedContextEventSource.EventHandlersBuilder()
             subscribers += SubscriberConfiguration(name, context, edenPolicy, eventHandlersBuilder)
             val subscriber = Subscriber(eventHandlersBuilder)

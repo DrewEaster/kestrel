@@ -15,7 +15,7 @@ class HelloNewUser constructor(boundedContexts: BoundedContextEventSources): Sta
     init {
         processManager(name = "hello-new-user") {
 
-            subscribe(context = UserContext, edenPolicy = FROM_NOW) {
+            subscribe(name = "user-registrations", context = UserContext, edenPolicy = FROM_NOW) {
 
                 event<UserRegistered> { event, _ ->
                     fromRunnable { LOG.info("Hello ${event.username}!") }
