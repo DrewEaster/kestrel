@@ -6,9 +6,10 @@ import com.dreweaster.ddd.kestrel.domain.AggregateState
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.*
 import com.dreweaster.ddd.kestrel.infrastructure.InMemoryBackend
-import io.kotlintest.matchers.instanceOf
-import io.kotlintest.matchers.shouldBe
-import io.kotlintest.specs.WordSpec
+import io.kotest.core.spec.IsolationMode
+import io.kotest.core.spec.style.WordSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.instanceOf
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
@@ -23,7 +24,7 @@ class EventsourcedDomainModelTests : WordSpec() {
 
     val domainModel = EventSourcedDomainModel(backend, eventSourcingConfiguration)
 
-    override val oneInstancePerTest = true
+    override fun isolationMode() = IsolationMode.InstancePerTest
 
     val meterRegistry = SimpleMeterRegistry()
 
@@ -225,36 +226,81 @@ class EventsourcedDomainModelTests : WordSpec() {
                 (result as UnexpectedExceptionResult).ex shouldBe instanceOf(AggregateInstanceAlreadyExists::class)
             }
 
-            "create a snapshot and successful restore from that snapshot" {
-                // Given
+            "creates expected snapshots and successfully restores from latest snapshot" {
+
+                fun verifyNoSnapshot(aggregateId: String) {
+                    backend.loadSnapshot(User, AggregateId(aggregateId)).block() shouldBe null
+                }
+
+                fun verifySnapshot(aggregateId: String, expectedVersion: Long, expectedState: UserState) {
+                    // The snapshot should have been persisted at version 3
+                    val snapshot = backend.loadSnapshot(User, AggregateId(aggregateId)).block()!!
+                    snapshot.version shouldBe expectedVersion
+                    snapshot.state shouldBe expectedState
+                }
+
                 eventSourcingConfiguration.setSnapshotThreshold(4)
-                val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
+                var user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
+
                 user.handleCommand(RegisterUser(username = "joebloggs", password = "password")).block()
+                verifyNoSnapshot("some-aggregate-id")
+
                 user.handleCommand(ChangePassword(password = "changedPassword1")).block()
+                verifyNoSnapshot("some-aggregate-id")
+
                 user.handleCommand(ChangeUsername(username = "changedUsername1")).block()
+                verifyNoSnapshot("some-aggregate-id")
+
                 user.handleCommand(Login(password = "wrongpassword")).block()
+                verifyNoSnapshot("some-aggregate-id")
+
                 user.handleCommand(ChangePassword(password = "changedPassword2")).block()
+                verifySnapshot("some-aggregate-id", 3L, ActiveUser("changedUsername1", "changedPassword1", 1))
 
-                // When
-
-                // Clearing events covered by the snapshot
+                // Clearing events covered by expected snapshot
                 backend.clearEvents { it.second < 4 }
 
-                // And processing further events
                 user.handleCommand(ChangePassword(password = "changedPassword3")).block()
+                verifySnapshot("some-aggregate-id", 3L, ActiveUser("changedUsername1", "changedPassword1", 1))
+
                 user.handleCommand(ChangePassword(password = "changedPassword4")).block()
+                verifySnapshot("some-aggregate-id", 3L, ActiveUser("changedUsername1", "changedPassword1", 1))
 
-                // And fetching the current state of the user
+                user.handleCommand(ChangePassword(password = "changedPassword5")).block()
+                verifySnapshot("some-aggregate-id", 3L, ActiveUser("changedUsername1", "changedPassword1", 1))
+
+                user.handleCommand(ChangePassword(password = "changedPassword6")).block()
+                verifySnapshot("some-aggregate-id", 7L, ActiveUser("changedUsername1", "changedPassword5", 1))
+
+                // Clearing events covered by expected snapshot
+                backend.clearEvents { it.second < 8 }
+
+                user.handleCommand(ChangePassword(password = "changedPassword7")).block()
+                verifySnapshot("some-aggregate-id", 7L, ActiveUser("changedUsername1", "changedPassword5", 1))
+
+                user.handleCommand(ChangePassword(password = "changedPassword8")).block()
+                verifySnapshot("some-aggregate-id", 7L, ActiveUser("changedUsername1", "changedPassword5", 1))
+
+                user.handleCommand(ChangePassword(password = "changedPassword9")).block()
+                verifySnapshot("some-aggregate-id", 7L, ActiveUser("changedUsername1", "changedPassword5", 1))
+
+                user.handleCommand(ChangePassword(password = "changedPassword10")).block()
+                verifySnapshot("some-aggregate-id", 11L, ActiveUser("changedUsername1", "changedPassword9", 1))
+
+                // Clearing events covered by expected snapshot
+                backend.clearEvents { it.second < 12 }
+
+                user.handleCommand(ChangePassword(password = "changedPassword11")).block()
+                verifySnapshot("some-aggregate-id", 11L, ActiveUser("changedUsername1", "changedPassword9", 1))
+
+                user.handleCommand(ChangePassword(password = "changedPassword12")).block()
+                verifySnapshot("some-aggregate-id", 11L, ActiveUser("changedUsername1", "changedPassword9", 1))
+
                 val userState = user.currentState().block()
-
-                // Then
-
-                // The snapshot should have been persisted at version 3
-                backend.loadSnapshot(User, AggregateId("some-aggregate-id")).block()!!.version shouldBe 3L
 
                 // And the user state should be as expected
                 (userState as ActiveUser).username shouldBe "changedUsername1"
-                userState.password shouldBe "changedPassword4"
+                userState.password shouldBe "changedPassword12"
                 userState.failedLoginAttempts shouldBe 1
             }
 
@@ -370,7 +416,15 @@ class MockBackend : InMemoryBackend() {
         return super.loadSnapshot(aggregateType, aggregateId)
     }
 
-    override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> saveEvents(aggregateType: A, aggregateId: AggregateId, causationId: CausationId, rawEvents: List<E>, expectedSequenceNumber: Long, correlationId: CorrelationId?, snapshot: Snapshot<S>?): Flux<PersistedEvent<E>> {
+    override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> saveEvents(
+            aggregateType: A,
+            aggregateId: AggregateId,
+            causationId: CausationId,
+            rawEvents: List<E>,
+            expectedSequenceNumber: Long,
+            correlationId: CorrelationId?,
+            snapshot: Snapshot<S>?): Flux<PersistedEvent<E>> {
+
         return when {
             optimisticConcurrencyExceptionOnSave -> Flux.error(OptimisticConcurrencyException)
             saveErrorState -> Flux.error(IllegalStateException())

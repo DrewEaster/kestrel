@@ -65,10 +65,10 @@ data class UpdateParameterBuilder(val values: MutableMap<String, Any> = mutableM
 }
 
 interface DatabaseContext {
-    fun <T> select(sql: String, mapper: (ResultRow) -> T, body: SelectParameterBuilder.() -> Unit): Flux<out T>
-    fun <T> select(sql: String, vararg params: Pair<String, Any>, mapper: (ResultRow) -> T): Flux<out T>
-    fun <T> select(sql: String, params: Map<String, Any>, mapper: (ResultRow) -> T): Flux<out T>
-    fun <T> select(sql: String, mapper: (ResultRow) -> T): Flux<out T>
+    fun <T> select(sql: String, mapper: (ResultRow) -> T, body: SelectParameterBuilder.() -> Unit): Flux<T>
+    fun <T> select(sql: String, vararg params: Pair<String, Any>, mapper: (ResultRow) -> T): Flux<T>
+    fun <T> select(sql: String, params: Map<String, Any>, mapper: (ResultRow) -> T): Flux<T>
+    fun <T> select(sql: String, mapper: (ResultRow) -> T): Flux<T>
     fun <T> batchUpdate(sql: String, values: Iterable<T>, body: UpdateParameterBuilder.(T) -> Unit): Flux<Int>
     fun update(sql: String, body: UpdateParameterBuilder.() -> Unit): Flux<Int>
     fun update(sql: String, vararg params: Pair<String, Any>): Flux<Int>
@@ -76,6 +76,6 @@ interface DatabaseContext {
 }
 
 interface Database {
-    fun <T> withContext(f: (DatabaseContext) -> Flux<out T>): Flux<T>
-    fun <T> inTransaction(f: (DatabaseContext) -> Flux<out T>): Flux<T>
+    fun <T> withContext(f: (DatabaseContext) -> Flux<T>): Flux<T>
+    fun <T> inTransaction(f: (DatabaseContext) -> Flux<T>): Flux<T>
 }

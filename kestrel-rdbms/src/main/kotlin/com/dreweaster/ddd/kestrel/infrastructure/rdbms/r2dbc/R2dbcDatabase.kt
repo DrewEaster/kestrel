@@ -12,12 +12,12 @@ import kotlin.text.Regex.Companion.escapeReplacement
 
 class R2dbcDatabase(val r2dbc: R2dbc): Database {
 
-    override fun <T> inTransaction(f: (DatabaseContext) -> Flux<out T>): Flux<T> = r2dbc.inTransaction { handle ->
+    override fun <T> inTransaction(f: (DatabaseContext) -> Flux<T>): Flux<T> = r2dbc.inTransaction { handle ->
         val queryTransaction = R2dbcDatabaseHandle(handle)
         f(queryTransaction)
     }
 
-    override fun <T> withContext(f: (DatabaseContext) -> Flux<out T>): Flux<T> = r2dbc.withHandle { handle ->
+    override fun <T> withContext(f: (DatabaseContext) -> Flux<T>): Flux<T> = r2dbc.withHandle { handle ->
         val queryTransaction = R2dbcDatabaseHandle(handle)
         f(queryTransaction)
     }
@@ -65,21 +65,21 @@ class R2dbcDatabaseHandle(private val handle: Handle): DatabaseContext {
         else -> it
     }}
 
-    override fun <T> select(sql: String, mapper: (ResultRow) -> T, body: SelectParameterBuilder.() -> Unit): Flux<out T> {
+    override fun <T> select(sql: String, mapper: (ResultRow) -> T, body: SelectParameterBuilder.() -> Unit): Flux<T> {
         val parameterBuilder = SelectParameterBuilder()
         body(parameterBuilder)
         return select(sql, parameterBuilder.values, mapper)
     }
 
-    override fun <T> select(sql: String, vararg params: Pair<String, Any>, mapper: (ResultRow) -> T): Flux<out T> {
+    override fun <T> select(sql: String, vararg params: Pair<String, Any>, mapper: (ResultRow) -> T): Flux<T> {
         return select(sql, params.toMap(), mapper)
     }
 
-    override fun <T> select(sql: String, mapper: (ResultRow) -> T): Flux<out T> {
+    override fun <T> select(sql: String, mapper: (ResultRow) -> T): Flux<T> {
         return select(sql, emptyMap(), mapper)
     }
 
-    override fun <T> select(sql: String, params: Map<String, Any>, mapper: (ResultRow) -> T): Flux<out T> {
+    override fun <T> select(sql: String, params: Map<String, Any>, mapper: (ResultRow) -> T): Flux<T> {
         return when {
             params.isEmpty() -> handle.select(sql).mapRow { row -> mapper(R2dbcResultRow(row)) }
             else -> {

@@ -32,7 +32,7 @@ open class InMemoryBackend : Backend {
 
     fun clearEvents(filter: (Pair<PersistedEvent<*>,Long>) -> Boolean = { true } ) {
         events = events.filterNot(filter)
-        nextOffset = events.lastOrNull()?.let { it.second } ?: 0
+        nextOffset = events.lastOrNull()?.let { it.second + 1 } ?: 0
     }
 
     fun clearSnapshots() {
@@ -51,7 +51,15 @@ open class InMemoryBackend : Backend {
         return Flux.fromIterable(persistedEventsFor(aggregateType, aggregateId).filter { it.sequenceNumber > afterSequenceNumber })
     }
 
-    override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> saveEvents(aggregateType: A, aggregateId: AggregateId, causationId: CausationId, rawEvents: List<E>, expectedSequenceNumber: Long, correlationId: CorrelationId?, snapshot: Snapshot<S>?): Flux<PersistedEvent<E>> {
+    override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> saveEvents(
+            aggregateType: A,
+            aggregateId: AggregateId,
+            causationId: CausationId,
+            rawEvents: List<E>,
+            expectedSequenceNumber: Long,
+            correlationId: CorrelationId?,
+            snapshot: Snapshot<S>?): Flux<PersistedEvent<E>> {
+
         if (aggregateHasBeenModified(aggregateType, aggregateId, expectedSequenceNumber)) {
             return Flux.error(OptimisticConcurrencyException)
         }

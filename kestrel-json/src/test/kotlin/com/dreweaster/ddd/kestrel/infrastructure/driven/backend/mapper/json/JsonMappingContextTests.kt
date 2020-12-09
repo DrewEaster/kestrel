@@ -6,8 +6,8 @@ import com.dreweaster.ddd.kestrel.domain.DomainEventTag
 import com.dreweaster.ddd.kestrel.util.json.*
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
-import io.kotlintest.specs.FeatureSpec
-import io.kotlintest.matchers.shouldBe
+import io.kotest.core.spec.style.FeatureSpec
+import io.kotest.matchers.shouldBe
 
 class JsonMappingContextTests : FeatureSpec() {
 
