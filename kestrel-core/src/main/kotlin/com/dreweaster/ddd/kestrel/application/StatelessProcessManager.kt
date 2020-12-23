@@ -2,46 +2,36 @@ package com.dreweaster.ddd.kestrel.application
 
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import reactor.core.publisher.Mono
+import kotlin.reflect.KClass
 
-abstract class StatelessProcessManager(val boundedContexts: BoundedContextEventSources) {
+interface StatelessProcessManager {
 
-    data class SubscriberConfiguration(
-            val name: String,
-            val boundedContextName: BoundedContextName,
-            val edenPolicy: BoundedContextSubscriptionEdenPolicy,
-            val eventHandlersBuilder: BoundedContextEventSource.EventHandlersBuilder)
+    class EventHandlersBuilder {
 
-    inner class StatelessProcessManagerBehaviour(private val name: String) {
+        var handlers: Map<KClass<out DomainEvent>, (DomainEvent, EventMetadata) -> Mono<Void>> = emptyMap()
 
-        private var subscribers: List<SubscriberConfiguration> = emptyList()
-
-        fun start() {
-            subscribers.forEach { subscriber ->
-                boundedContexts[subscriber.boundedContextName]?.subscribe(
-                    subscriber.eventHandlersBuilder.build(),
-                        BoundedContextSubscriberConfiguration("${name}_${subscriber.name}", subscriber.edenPolicy))
-            }
-        }
-
-        fun subscribe(name: String, context: BoundedContextName, edenPolicy: BoundedContextSubscriptionEdenPolicy, init: Subscriber.() -> Unit): Subscriber {
-            val eventHandlersBuilder = BoundedContextEventSource.EventHandlersBuilder()
-            subscribers += SubscriberConfiguration(name, context, edenPolicy, eventHandlersBuilder)
-            val subscriber = Subscriber(eventHandlersBuilder)
-            subscriber.init()
-            return subscriber
+        fun <E: DomainEvent> withHandler(type: KClass<E>, handler: (E, EventMetadata) -> Mono<Void>): EventHandlersBuilder {
+            handlers += type to handler as (DomainEvent, EventMetadata) -> Mono<Void>
+            return this
         }
     }
 
-    class Subscriber(val eventHandlersBuilder: BoundedContextEventSource.EventHandlersBuilder) {
+    class Behaviour {
+
+        val eventHandlersBuilder = EventHandlersBuilder()
 
         inline fun <reified E: DomainEvent> event(noinline handler: (E, EventMetadata) -> Mono<Void>) {
             eventHandlersBuilder.withHandler(E::class, handler)
         }
+
+        fun handlers(): Map<KClass<out DomainEvent>, (DomainEvent, EventMetadata) -> Mono<Void>> = eventHandlersBuilder.handlers
     }
 
-    fun processManager(name: String, init: StatelessProcessManagerBehaviour.() -> Unit): StatelessProcessManagerBehaviour {
-        val behaviour = StatelessProcessManagerBehaviour(name)
+    val behaviour: Pair<String, Map<KClass<out DomainEvent>, (DomainEvent, EventMetadata) -> Mono<Void>>>
+
+    fun processManager(name: String, init: Behaviour.() -> Unit): Pair<String, Map<KClass<out DomainEvent>, (DomainEvent, EventMetadata) -> Mono<Void>>> {
+        val behaviour = Behaviour()
         behaviour.init()
-        return behaviour
+        return name to behaviour.handlers()
     }
 }

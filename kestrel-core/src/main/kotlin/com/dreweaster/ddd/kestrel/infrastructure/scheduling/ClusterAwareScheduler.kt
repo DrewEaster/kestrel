@@ -66,8 +66,8 @@ class ClusterAwareScheduler(private val cluster: Cluster): Scheduler {
                             wrappedJob.execute()
                         }
                         else -> {
-                            LOG.debug("Not running job '$name' as this instance is not leader")
-                            Mono.just(false)
+                            LOG.warn("Not running job '$name' as this instance is not leader")
+                            just(false)
                         }
                     }
                 }

@@ -23,6 +23,8 @@ import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.state
 import com.dreweaster.ddd.kestrel.infrastructure.driven.serialisation.user.state.LockedUserMapper
 import com.dreweaster.ddd.kestrel.infrastructure.driving.eventsource.KestrelExampleJsonEventMapper
 import com.dreweaster.ddd.kestrel.infrastructure.driving.eventsource.UserContextHttpEventSourceFactory
+import com.dreweaster.ddd.kestrel.infrastructure.driving.processmanager.stateless.HelloNewUserMaterialiser
+import com.dreweaster.ddd.kestrel.infrastructure.driving.processmanager.stateless.WarnUserLockedMaterialiser
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.consumer.BoundedContextHttpEventSourceConfiguration
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.offset.PostgresOffsetTracker
 import com.dreweaster.ddd.kestrel.infrastructure.http.eventsource.producer.BoundedContextHttpJsonEventProducer
@@ -130,8 +132,8 @@ object Application {
         })
 
         // Start process managers
-        HelloNewUser(streamSources)
-        WarnUserLocked(streamSources)
+        HelloNewUserMaterialiser(streamSources)
+        WarnUserLockedMaterialiser(streamSources)
 
         val server = HttpServer.create()
             .host("0.0.0.0")
