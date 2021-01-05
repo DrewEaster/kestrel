@@ -40,8 +40,7 @@ class EventSourcedDomainModel(
     inner class DeduplicatingCommandHandler<C : DomainCommand, E : DomainEvent, S : AggregateState>(
             private val aggregateType: Aggregate<C,E,S>,
             private val aggregateId: AggregateId,
-            private val reportingContext: ReportingContext<C,E,S>,
-            private var currentAggregate: RecoverableAggregate<C,E,S>? = null) : AggregateRoot<C, E, S> {
+            private val reportingContext: ReportingContext<C,E,S>) : AggregateRoot<C, E, S> {
 
         override fun currentState(): Mono<S> {
             return recoverAggregate().map { it.recoveredState }
@@ -51,11 +50,7 @@ class EventSourcedDomainModel(
             reportingContext.startedHandling(commandEnvelope)
             return recoverAggregate().flatMap { recoverableAggregate ->
                 applyCommand(commandEnvelope, recoverableAggregate)
-                    .flatMap { if(commandEnvelope.dryRun) Mono.just(it.second to emptyList()) else persistEvents(it.first, it.second) }
-                    .doOnSuccess { result -> result.first.let { when(it) {
-                        is SuccessResult -> if(!it.deduplicated) currentAggregate = result.second.fold(recoverableAggregate) { acc, evt -> acc.apply(evt) }
-                    }}}
-                    .map { it.first }
+                    .flatMap { if(commandEnvelope.dryRun) Mono.just(it.second) else persistEvents(it.first, it.second) }
                     .onErrorResume(errorHandler(commandEnvelope, recoverableAggregate))
             }.onErrorResume { Mono.just(UnexpectedExceptionResult(aggregateId, aggregateType, commandEnvelope, null, it))
             }.doOnSuccess { result -> reportingContext.finishedHandling(result) }
@@ -63,7 +58,7 @@ class EventSourcedDomainModel(
 
         private fun recoverAggregate(): Mono<RecoverableAggregate<C, E, S>> {
             reportingContext.startedRecoveringAggregate()
-            return currentAggregate?.let { Mono.just(it) } ?: recoverSnapshot().flatMap { snapshot ->
+            return recoverSnapshot().flatMap { snapshot ->
                 recoverEvents(afterSequenceNumber = snapshot.version).reduce(RecoverableAggregate(
                     aggregateId = aggregateId,
                     aggregateType =  aggregateType,
@@ -94,7 +89,7 @@ class EventSourcedDomainModel(
                 .doOnError { reportingContext.finishedRecoveringPersistedEvents(it) }
         }
 
-        private fun persistEvents(aggregate: RecoverableAggregate<C, E, S>, result: CommandHandlingResult<C, E, S>): Mono<Pair<out CommandHandlingResult<C, E, S>, List<PersistedEvent<E>>>> {
+        private fun persistEvents(aggregate: RecoverableAggregate<C, E, S>, result: CommandHandlingResult<C, E, S>): Mono<out CommandHandlingResult<C, E, S>> {
             return if(result is SuccessResult && result.generatedEvents.isNotEmpty()) {
                 reportingContext.startedPersistingEvents(result.generatedEvents, aggregate.recoveredVersion)
                 backend.saveEvents(
@@ -106,8 +101,8 @@ class EventSourcedDomainModel(
                     correlationId = result.command.correlationId,
                     snapshot = aggregate.maybeCreateSnapshot()
                 ).doOnComplete { reportingContext.finishedPersistingEvents()
-                }.doOnError { reportingContext.finishedPersistingEvents(it) }.collectList().map { result to it }
-            } else Mono.just(result to emptyList())
+                }.doOnError { reportingContext.finishedPersistingEvents(it) }.then(Mono.just(result))
+            } else Mono.just(result)
         }
 
         private fun applyCommand(commandEnvelope: CommandEnvelope<C>, aggregate: RecoverableAggregate<C, E, S>): Mono<Pair<RecoverableAggregate<C, E, S>, CommandHandlingResult<C, E, S>>> {
@@ -215,7 +210,7 @@ data class RecoverableAggregate<C: DomainCommand, E: DomainEvent, S: AggregateSt
 
     fun apply(evt: PersistedEvent<E>) = copy(
         recoveredVersion = evt.sequenceNumber,
-        eventHistory = if(eventHistory.size < snapshotThreshold) eventHistory + evt else listOf(evt),
+        eventHistory = eventHistory + evt,
         causationIdHistory = causationIdHistory + evt.causationId,
         recoveredState = if(recoveredState != null) aggregateType.blueprint.eventHandler(recoveredState, evt.rawEvent) else aggregateType.blueprint.edenEventHandler(evt.rawEvent),
         recoveredSnapshot = maybeCreateSnapshot() ?: recoveredSnapshot
