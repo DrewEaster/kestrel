@@ -43,13 +43,15 @@ data class CommandEnvelope<C: DomainCommand>(
     val dryRun: Boolean = false // TODO: Flesh out the behaviour of dry run
 )
 
+typealias AggregateInstanceVersion = Long
+
 interface AggregateRoot<C: DomainCommand, E: DomainEvent, S: AggregateState> {
 
     infix fun handleCommandEnvelope(commandEnvelope: CommandEnvelope<C>): Mono<CommandHandlingResult<C, E, S>>
 
     infix fun handleCommand(command: C): Mono<CommandHandlingResult<C, E, S>> = handleCommandEnvelope(CommandEnvelope(command))
 
-    fun currentState(): Mono<S>
+    fun currentState(): Mono<Pair<S, AggregateInstanceVersion>>
 }
 
 interface DomainModel {

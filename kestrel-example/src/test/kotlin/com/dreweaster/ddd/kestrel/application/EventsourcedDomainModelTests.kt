@@ -296,10 +296,11 @@ class EventsourcedDomainModelTests : WordSpec() {
                 user.handleCommand(ChangePassword(password = "changedPassword12")).block()
                 verifySnapshot("some-aggregate-id", 11L, ActiveUser("changedUsername1", "changedPassword9", 1))
 
-                val userState = user.currentState().block()
+                val (userState, version) = user.currentState().block()
 
                 // And the user state should be as expected
                 (userState as ActiveUser).username shouldBe "changedUsername1"
+                version shouldBe 14L
                 userState.password shouldBe "changedPassword12"
                 userState.failedLoginAttempts shouldBe 1
             }

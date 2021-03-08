@@ -42,8 +42,8 @@ class EventSourcedDomainModel(
             private val aggregateId: AggregateId,
             private val reportingContext: ReportingContext<C,E,S>) : AggregateRoot<C, E, S> {
 
-        override fun currentState(): Mono<S> {
-            return recoverAggregate().map { it.recoveredState }
+        override fun currentState(): Mono<Pair<S, AggregateInstanceVersion>> {
+            return recoverAggregate().map { it.recoveredState?.let { state -> state to it.recoveredVersion } }
         }
 
         override fun handleCommandEnvelope(commandEnvelope: CommandEnvelope<C>): Mono<CommandHandlingResult<C, E, S>> {
