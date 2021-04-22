@@ -36,8 +36,8 @@
         <postgres.driver.version>42.2.5</postgres.driver.version>
         <hikaricp.version>3.3.1</hikaricp.version>
         <serialization.version>0.10.0</serialization.version>
-        <reactor.version>3.2.10.RELEASE</reactor.version>
-        <reactor.netty.version>0.8.9.RELEASE</reactor.netty.version>
+        <reactor.version>3.4.4</reactor.version>
+        <reactor.netty.version>1.0.5</reactor.netty.version>
         <r2dbc.version>Arabba-SR2</r2dbc.version>
         <jackson.version>2.9.10</jackson.version>
         <kotest.version>4.3.1</kotest.version>
