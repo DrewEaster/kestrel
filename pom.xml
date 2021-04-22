@@ -27,7 +27,7 @@
         <kotlin.compiler.languageVersion>1.4</kotlin.compiler.languageVersion>
         <kotlin.compiler.apiVersion>1.4</kotlin.compiler.apiVersion>
         <kotlin.compiler.incremental>true</kotlin.compiler.incremental>
-        <junit.version>4.12</junit.version>
+        <junit.version>4.13.1</junit.version>
         <vavr.version>0.10.2</vavr.version>
         <bintray.subject>dreweaster</bintray.subject>
         <bintray.repo>projects</bintray.repo>
