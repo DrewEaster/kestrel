@@ -233,26 +233,24 @@ object BatchSessions: ProcessManager<BatchSessionsContext, BatchSessionsEvent, B
 
             behaviour<Empty> {
 
-                event<ParkingSessionQueued> { cxt, _, evt ->
-                    goto(Buffering(
-                            carParkId = evt.carParkId,
-                            vehicle = Vehicle(
-                                parkingAccountId = evt.parkingAccountId,
-                                parkableVehicleId = evt.parkableVehicleId
-                            ),
-                            buffer = ParkingSessionBuffer.startNew(
-                                carPark = cxt.carPark,
-                                parkingSession = QueuedParkingSession(
-                                    startedAt = evt.startedAt,
-                                    finishedAt = evt.finishedAt
-                                )
-                            ))
-                    ){ "dreweaster" to "password" }.andSend( { RegisterUser(it.first,it.second) toAggregate User identifiedBy AggregateId()})
-                    .andEmit({ BufferingPeriodEnded at evt.startedAt + cxt.carPark.priceCappingPeriod })
-                }
-
-                commandErrorHandler<RegisterUser, AggregateInstanceAlreadyExists> { ex, cmd, aggregateType, aggregateId ->
-                    // Return list of events to emit to self or empty list if error can be ignored.
+                event<ParkingSessionQueued>({ state, evt -> GetCarPark(evt.carParkId).toCmd { carPark -> BatchSessionsContext(carPark) } }) { cxt, _, evt ->
+                    Buffering(
+                        carParkId = evt.carParkId,
+                        vehicle = Vehicle(
+                            parkingAccountId = evt.parkingAccountId,
+                            parkableVehicleId = evt.parkableVehicleId
+                        ),
+                        buffer = ParkingSessionBuffer.startNew(
+                            carPark = cxt.carPark,
+                            parkingSession = QueuedParkingSession(
+                                startedAt = evt.startedAt,
+                                finishedAt = evt.finishedAt
+                            )
+                    )) to Send.all(
+                        Send.command(RegisterUser() to User identifiedBy AggregateId()) { ex, cmd, aggregateType, aggregateId -> SomeEvent() },
+                        Send.event(BufferingPeriodEnded at evt.startedAt + cxt.carPark.priceCappingPeriod),
+                        Send.event(BufferingPeriodEnded after 2.minutes())
+                    )
                 }
             }
 
