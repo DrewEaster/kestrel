@@ -32,7 +32,14 @@ data class EventMapper<T: DomainEvent>(
     val map: (SerialisedEventPayload, FullyQualifiedClassName, SerialisedEventVersion) -> T)
 
 data class SourceEvent(val json: ObjectNode) {
-    val payload: String by lazy { json["payload"].string }
+    val payload: String by lazy {
+        val payload = json["payload"]
+        when{
+            payload.isTextual -> payload.string
+            payload.isObject -> payload.obj.toString() // Backwards compatibility - support payloads as JSON objects
+            else -> throw IllegalStateException("Could not deserialise event payload as String or Object: $payload")
+        }
+    }
     val type: String by lazy { json["type"].string }
     val tag: String by lazy { json["tag"].string }
     val version: Int by lazy { json["version"].int }
