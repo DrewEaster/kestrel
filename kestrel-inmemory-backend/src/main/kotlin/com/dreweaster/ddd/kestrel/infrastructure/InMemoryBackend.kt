@@ -47,8 +47,8 @@ open class InMemoryBackend : Backend {
         return Flux.fromIterable(persistedEventsFor(aggregateType, aggregateId))
     }
 
-    override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId, afterSequenceNumber: Long): Flux<PersistedEvent<E>> {
-        return Flux.fromIterable(persistedEventsFor(aggregateType, aggregateId).filter { it.sequenceNumber > afterSequenceNumber })
+    override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId, afterSequenceNumber: Long, toSequenceNumber: Long?): Flux<PersistedEvent<E>> {
+        return Flux.fromIterable(persistedEventsFor(aggregateType, aggregateId).filter { it.sequenceNumber > afterSequenceNumber && toSequenceNumber?.let { to -> it.sequenceNumber <= to } ?: true })
     }
 
     override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> saveEvents(
@@ -98,6 +98,14 @@ open class InMemoryBackend : Backend {
     }
 
     override fun <E : DomainEvent> fetchEventFeed(tags: Set<DomainEventTag>, afterInstant: Instant, batchSize: Int): Mono<EventFeed> {
+        return Mono.error(UnsupportedOperationException())
+    }
+
+    override fun <E : DomainEvent> fetchEventFeed(afterOffset: Long, batchSize: Int): Mono<EventFeed> {
+        return Mono.error(UnsupportedOperationException())
+    }
+
+    override fun <E : DomainEvent> fetchEventFeed(afterInstant: Instant, batchSize: Int): Mono<EventFeed> {
         return Mono.error(UnsupportedOperationException())
     }
 

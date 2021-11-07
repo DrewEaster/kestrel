@@ -159,10 +159,14 @@ object Application {
                         ) { id -> jsonObject("id" to id.value)} // TODO: Error handling
                     }
                     .get("/users/{id}") { request, response ->
-                        response.sendObjectAsJson(domainModel.aggregateRootOf(User, AggregateId(request.param("id")!!)).currentState() as Mono<UserState?>) { state ->
-                            when(state) {
-                                is ActiveUser -> jsonObject("username" to state.username)
-                                is LockedUser -> jsonObject("username" to state.username)
+                        val state = when(val version = request.queryParams()["version"]?.firstOrNull()) {
+                            null -> domainModel.aggregateRootOf(User, AggregateId(request.param("id")!!)).currentState().map { it.first }
+                            else -> domainModel.aggregateRootOf(User, AggregateId(request.param("id")!!)).stateAt(version.toLong())
+                        }
+                        response.sendObjectAsJson(state as Mono<UserState?>) { userState ->
+                            when(userState) {
+                                is ActiveUser -> jsonObject("username" to userState.username, "password" to userState.password, "failed_login_attempts" to userState.failedLoginAttempts)
+                                is LockedUser -> jsonObject("username" to userState.username, "password" to userState.password, "locked" to true)
                             }
                         }
                     }

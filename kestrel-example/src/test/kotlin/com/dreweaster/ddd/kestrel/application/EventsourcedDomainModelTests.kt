@@ -6,6 +6,7 @@ import com.dreweaster.ddd.kestrel.domain.AggregateState
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.aggregates.user.*
 import com.dreweaster.ddd.kestrel.infrastructure.InMemoryBackend
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.IsolationMode
 import io.kotest.core.spec.style.WordSpec
 import io.kotest.matchers.shouldBe
@@ -13,6 +14,7 @@ import io.kotest.matchers.types.instanceOf
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
+import java.time.Instant
 
 // TODO: Test Eden command and event handling
 // TODO: Determine if current approach to not supporting eden commands and events outside of edenBehaviour is actually correct feature
@@ -240,7 +242,7 @@ class EventsourcedDomainModelTests : WordSpec() {
                 }
 
                 eventSourcingConfiguration.setSnapshotThreshold(4)
-                var user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
+                val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
 
                 user.handleCommand(RegisterUser(username = "joebloggs", password = "password")).block()
                 verifyNoSnapshot("some-aggregate-id")
@@ -315,6 +317,194 @@ class EventsourcedDomainModelTests : WordSpec() {
 
                 // Then
                 (result as UnexpectedExceptionResult).ex shouldBe instanceOf(IllegalStateException::class)
+            }
+
+            // stateAt() - No snapshot
+
+            "return empty for state at version when there's no snapshot and no events for the aggregate" {
+                val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
+                val result = user.stateAt(0L).block()
+                result shouldBe null
+            }
+
+            "restore state at version when there's no snapshot and full event history exists up to the the requested version" {
+                eventSourcingConfiguration.setSnapshotThreshold(Int.MAX_VALUE)
+                val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
+
+                user.handleCommand(RegisterUser(username = "joebloggs", password = "password")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword1")).block()
+                user.handleCommand(ChangeUsername(username = "changedUsername1")).block()
+                user.handleCommand(Login(password = "wrongpassword")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword2")).block()
+
+                val result = user.stateAt(4L).block()
+                result shouldBe ActiveUser("changedUsername1", "changedPassword2", 1)
+            }
+
+            "return empty state at version when there's no snapshot and full event history exists, but not up to the the requested version" {
+                eventSourcingConfiguration.setSnapshotThreshold(Int.MAX_VALUE)
+                val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
+
+                user.handleCommand(RegisterUser(username = "joebloggs", password = "password")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword1")).block()
+                user.handleCommand(ChangeUsername(username = "changedUsername1")).block()
+                user.handleCommand(Login(password = "wrongpassword")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword2")).block()
+
+                val result = user.stateAt(5L).block()
+                result shouldBe null
+            }
+
+            "throw error when there's no snapshot and event history does not start from sequence number 0" {
+                eventSourcingConfiguration.setSnapshotThreshold(Int.MAX_VALUE)
+                val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
+
+                user.handleCommand(RegisterUser(username = "joebloggs", password = "password")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword1")).block()
+                user.handleCommand(ChangeUsername(username = "changedUsername1")).block()
+                user.handleCommand(Login(password = "wrongpassword")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword2")).block()
+
+                // Clear the first event in the history
+                backend.clearEvents { it.second < 1 }
+
+                shouldThrow<EventHistoryCorrupted> { user.stateAt(5L).block() }
+            }
+
+            // stateAt() - Snapshot version > requested version
+
+            "return empty state at version when there's a snapshot beyond requested version, but no events for the aggregate" {
+                eventSourcingConfiguration.setSnapshotThreshold(4)
+                val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
+
+                user.handleCommand(RegisterUser(username = "joebloggs", password = "password")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword1")).block()
+                user.handleCommand(ChangeUsername(username = "changedUsername1")).block()
+                user.handleCommand(Login(password = "wrongpassword")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword2")).block()
+
+                // Clear all the events
+                backend.clearEvents { it.second < 5 }
+
+                val result = user.stateAt(2L).block()
+                result shouldBe null
+            }
+
+            "restore state at version when there's a snapshot beyond requested version and full event history exists up to the the requested version" {
+                eventSourcingConfiguration.setSnapshotThreshold(4)
+                val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
+
+                user.handleCommand(RegisterUser(username = "joebloggs", password = "password")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword1")).block()
+                user.handleCommand(ChangeUsername(username = "changedUsername1")).block()
+                user.handleCommand(Login(password = "wrongpassword")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword2")).block()
+
+                val result = user.stateAt(2L).block()
+                result shouldBe ActiveUser("changedUsername1", "changedPassword1", 0)
+            }
+
+            "return empty state at version when there's a snapshot beyond requested version and full event history exists, but not up to the the requested version" {
+                eventSourcingConfiguration.setSnapshotThreshold(4)
+                val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
+
+                user.handleCommand(RegisterUser(username = "joebloggs", password = "password")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword1")).block()
+                user.handleCommand(ChangeUsername(username = "changedUsername1")).block()
+                user.handleCommand(Login(password = "wrongpassword")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword2")).block()
+
+                backend.clearEvents { it.second > 1 }
+
+                val result = user.stateAt(2L).block()
+                result shouldBe null
+            }
+
+            "throw error when there's a snapshot beyond requested version, but event history does not start from sequence number 0" {
+                eventSourcingConfiguration.setSnapshotThreshold(4)
+                val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
+
+                user.handleCommand(RegisterUser(username = "joebloggs", password = "password")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword1")).block()
+                user.handleCommand(ChangeUsername(username = "changedUsername1")).block()
+                user.handleCommand(Login(password = "wrongpassword")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword2")).block()
+
+                // Clear the first event in the history
+                backend.clearEvents { it.second < 1 }
+
+                shouldThrow<EventHistoryCorrupted> { user.stateAt(2L).block() }
+            }
+
+            // stateAt() - Snapshot version == requested version
+            "return state at version when snapshot version equals requested version" {
+                eventSourcingConfiguration.setSnapshotThreshold(4)
+                val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
+
+                user.handleCommand(RegisterUser(username = "joebloggs", password = "password")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword1")).block()
+                user.handleCommand(ChangeUsername(username = "changedUsername1")).block()
+                user.handleCommand(Login(password = "wrongpassword")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword2")).block()
+
+                // Clear all the events so that we can prove we're fetching only from the snapshot
+                backend.clearEvents { it.second < 5 }
+
+                val result = user.stateAt(3L).block()
+                result shouldBe ActiveUser("changedUsername1", "changedPassword1", 1)
+            }
+
+            // stateAt() - Snapshot version < requested version
+            "return empty state at version when there's a snapshot before requested version, but there are no events after snapshot version" {
+                eventSourcingConfiguration.setSnapshotThreshold(4)
+                val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
+
+                user.handleCommand(RegisterUser(username = "joebloggs", password = "password")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword1")).block()
+                user.handleCommand(ChangeUsername(username = "changedUsername1")).block()
+                user.handleCommand(Login(password = "wrongpassword")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword2")).block()
+
+                // Clear all events
+                backend.clearEvents { it.second < 5 }
+
+                val result = user.stateAt(4L).block()
+                result shouldBe null
+            }
+
+            // stateAt() - Snapshot version < requested version
+            "return empty state at version when there's a snapshot before requested version, but last event sequence number is less than requested version" {
+                eventSourcingConfiguration.setSnapshotThreshold(4)
+                val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
+
+                user.handleCommand(RegisterUser(username = "joebloggs", password = "password")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword1")).block()
+                user.handleCommand(ChangeUsername(username = "changedUsername1")).block()
+                user.handleCommand(Login(password = "wrongpassword")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword2")).block()
+
+                // Clear all the events before the snapshot so that we can prove we're fetching only from the snapshot
+                backend.clearEvents { it.second < 4 }
+
+                val result = user.stateAt(5L).block()
+                result shouldBe null
+            }
+
+            "restore state at version when there's a snapshot before requested version and full event history exists up to the the requested version" {
+                eventSourcingConfiguration.setSnapshotThreshold(4)
+                val user = domainModel.aggregateRootOf(User, AggregateId("some-aggregate-id"))
+
+                user.handleCommand(RegisterUser(username = "joebloggs", password = "password")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword1")).block()
+                user.handleCommand(ChangeUsername(username = "changedUsername1")).block()
+                user.handleCommand(Login(password = "wrongpassword")).block()
+                user.handleCommand(ChangePassword(password = "changedPassword2")).block()
+
+                // Clear all the events before the snapshot so that we can prove we're fetching only from the snapshot
+                backend.clearEvents { it.second < 4 }
+
+                val result = user.stateAt(4L).block()
+                result shouldBe ActiveUser("changedUsername1", "changedPassword2", 1)
             }
         }
     }
@@ -403,11 +593,11 @@ class MockBackend : InMemoryBackend() {
         return super.loadEvents(aggregateType, aggregateId)
     }
 
-    override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId, afterSequenceNumber: Long): Flux<PersistedEvent<E>> {
+    override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId, afterSequenceNumber: Long, toSequenceNumber: Long?): Flux<PersistedEvent<E>> {
         if (loadEventsErrorState) {
             return Flux.error(IllegalStateException())
         }
-        return super.loadEvents(aggregateType, aggregateId, afterSequenceNumber)
+        return super.loadEvents(aggregateType, aggregateId, afterSequenceNumber, toSequenceNumber)
     }
 
     override fun <S : AggregateState, A : Aggregate<*, *, S>> loadSnapshot(aggregateType: A, aggregateId: AggregateId): Mono<Snapshot<S>> {

@@ -35,6 +35,14 @@ class PostgresBackend(
             ORDER BY sequence_number
         """
 
+    private val loadEventsForAggregateInstanceSequenceRangeQueryString =
+        """
+            SELECT global_offset, event_id, aggregate_id, aggregate_type, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number
+            FROM domain_event
+            WHERE aggregate_id = :aggregate_id AND aggregate_type = :aggregate_type AND sequence_number > :after_sequence_number AND sequence_number <= :to_sequence_number
+            ORDER BY sequence_number
+        """
+
     private val loadEventsForTagsAfterInstantQueryString =
         """
             SELECT global_offset, event_id, aggregate_id, aggregate_type, tag, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number
@@ -51,6 +59,22 @@ class PostgresBackend(
             WHERE tag IN (:tags) AND event_timestamp > :after_timestamp
         """.trimIndent()
 
+    private val loadEventsAfterInstantQueryString =
+        """
+            SELECT global_offset, event_id, aggregate_id, aggregate_type, tag, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number
+            FROM domain_event
+            WHERE event_timestamp > :after_timestamp
+            ORDER BY global_offset
+            LIMIT :limit
+        """.trimIndent()
+
+    private val maxQueryOffsetForEventsAfterInstantQueryString =
+        """
+            SELECT MAX(global_offset) as max_offset
+            FROM domain_event
+            WHERE event_timestamp > :after_timestamp
+        """.trimIndent()
+
     private val loadEventsForTagsAfterOffsetQueryString =
         """
             SELECT global_offset, event_id, aggregate_id, aggregate_type, tag, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number
@@ -65,6 +89,22 @@ class PostgresBackend(
             SELECT MAX(global_offset) as max_offset
             FROM domain_event
             WHERE tag IN (:tags) AND global_offset > :after_offset
+        """.trimIndent()
+
+    private val loadEventsAfterOffsetQueryString =
+        """
+            SELECT global_offset, event_id, aggregate_id, aggregate_type, tag, causation_id, correlation_id, event_type, event_version, event_payload, event_timestamp, sequence_number
+            FROM domain_event
+            WHERE global_offset > :after_offset
+            ORDER BY global_offset
+            LIMIT :limit
+        """.trimIndent()
+
+    private val maxQueryOffsetForEventsAfterOffsetQueryString =
+        """
+            SELECT MAX(global_offset) as max_offset
+            FROM domain_event
+            WHERE global_offset > :after_offset
         """.trimIndent()
 
     private val saveEventsQueryString =
@@ -104,14 +144,25 @@ class PostgresBackend(
         }
     }.toMono()
 
-    override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId) = loadEvents(aggregateType, aggregateId, -1)
 
-    override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId, afterSequenceNumber: Long) = db.inTransaction { ctx ->
-        ctx.select(loadEventsForAggregateInstanceQueryString, rowToPersistedEvent(aggregateType)) {
+    override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(
+        aggregateType: A,
+        aggregateId: AggregateId
+    ): Flux<PersistedEvent<E>> = loadEvents(aggregateType, aggregateId, -1, null)
+
+    override fun <E : DomainEvent, A : Aggregate<*, E, *>> loadEvents(aggregateType: A, aggregateId: AggregateId, afterSequenceNumber: Long, toSequenceNumber: Long?) = db.inTransaction { ctx ->
+        toSequenceNumber?.let {
+            ctx.select(loadEventsForAggregateInstanceSequenceRangeQueryString, rowToPersistedEvent(aggregateType)) {
+                this["aggregate_id"] = aggregateId.value
+                this["aggregate_type"] = aggregateType.blueprint.name
+                this["after_sequence_number"] = afterSequenceNumber
+                this["to_sequence_number"] = it
+            }
+        } ?: (ctx.select(loadEventsForAggregateInstanceQueryString, rowToPersistedEvent(aggregateType)) {
             this["aggregate_id"] = aggregateId.value
             this["aggregate_type"] = aggregateType.blueprint.name
             this["sequence_number"] = afterSequenceNumber
-        }
+        })
     }
 
     override fun <E : DomainEvent, S : AggregateState, A : Aggregate<*, E, S>> saveEvents(
@@ -217,7 +268,31 @@ class PostgresBackend(
         }
     }.single()
 
-    // TODO: Remove duplication
+    override fun <E : DomainEvent> fetchEventFeed(afterOffset: Long, batchSize: Int): Mono<EventFeed> = db.inTransaction { ctx ->
+        ctx.select(maxOffsetForAllEventsQueryString) { it["max_offset"].longOrNull ?: -1  }.flatMap { globalMaxOffset ->
+            ctx.select(maxQueryOffsetForEventsAfterOffsetQueryString, { it["max_offset"].longOrNull ?: -1 }) {
+                this["after_offset"] = afterOffset
+            }.flatMap { queryMaxOffset ->
+                ctx.select(loadEventsAfterOffsetQueryString, rowToStreamEvent<E>()) {
+                    this["after_offset"] = afterOffset
+                    this["limit"] = batchSize
+                }.collectList().map { events ->
+                    val derivedQueryMaxOffset = if (queryMaxOffset == -1L) events.lastOrNull()?.offset ?: -1L else queryMaxOffset
+                    val derivedGlobalMaxOffset = if(globalMaxOffset == -1L ) derivedQueryMaxOffset else maxOf(globalMaxOffset, derivedQueryMaxOffset)
+                    EventFeed(
+                        events = events,
+                        tags = emptySet(),
+                        pageSize = batchSize,
+                        pageStartOffset = events.firstOrNull()?.offset,
+                        pageEndOffset = events.lastOrNull()?.offset,
+                        queryMaxOffset = derivedQueryMaxOffset,
+                        globalMaxOffset = derivedGlobalMaxOffset
+                    )
+                }
+            }
+        }
+    }.single()
+
     override fun <E : DomainEvent> fetchEventFeed(
             tags: Set<DomainEventTag>,
             afterInstant: Instant,
@@ -238,6 +313,31 @@ class PostgresBackend(
                     EventFeed(
                         events = events,
                         tags = tags,
+                        pageSize = batchSize,
+                        pageStartOffset = events.firstOrNull()?.offset,
+                        pageEndOffset = events.lastOrNull()?.offset,
+                        queryMaxOffset = derivedQueryMaxOffset,
+                        globalMaxOffset = derivedGlobalMaxOffset
+                    )
+                }
+            }
+        }
+    }.single()
+
+    override fun <E : DomainEvent> fetchEventFeed(afterInstant: Instant, batchSize: Int): Mono<EventFeed> = db.inTransaction { ctx ->
+        ctx.select(maxOffsetForAllEventsQueryString) { it["max_offset"].longOrNull ?: -1  }.flatMap { globalMaxOffset ->
+            ctx.select(maxQueryOffsetForEventsAfterInstantQueryString, { it["max_offset"].longOrNull ?: -1 }) {
+                this["after_timestamp"] = afterInstant
+            }.flatMap { queryMaxOffset ->
+                ctx.select(loadEventsAfterInstantQueryString, rowToStreamEvent<E>()) {
+                    this["after_timestamp"] = afterInstant
+                    this["limit"] = batchSize
+                }.collectList().map { events ->
+                    val derivedQueryMaxOffset = if (queryMaxOffset == -1L) events.lastOrNull()?.offset ?: -1L else queryMaxOffset
+                    val derivedGlobalMaxOffset = if(globalMaxOffset == -1L ) derivedQueryMaxOffset else maxOf(globalMaxOffset, derivedQueryMaxOffset)
+                    EventFeed(
+                        events = events,
+                        tags = emptySet(),
                         pageSize = batchSize,
                         pageStartOffset = events.firstOrNull()?.offset,
                         pageEndOffset = events.lastOrNull()?.offset,

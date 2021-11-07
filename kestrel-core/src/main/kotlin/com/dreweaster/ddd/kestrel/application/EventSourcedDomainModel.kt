@@ -15,6 +15,7 @@ interface EventSourcingConfiguration {
     fun <E : DomainEvent, S: AggregateState, A: Aggregate<*, E, S>> snapshotThresholdFor(aggregateType: Aggregate<*, E, S>): Int
 }
 
+// TODO: detect corrupt event history (i.e. event sequence numbers not contiguous)
 class EventSourcedDomainModel(
         private val backend: Backend,
         private val eventSourcingConfiguration: EventSourcingConfiguration) : DomainModel {
@@ -44,6 +45,47 @@ class EventSourcedDomainModel(
 
         override fun currentState(): Mono<Pair<S, AggregateInstanceVersion>> {
             return recoverAggregate().map { it.recoveredState?.let { state -> state to it.recoveredVersion } }
+        }
+
+        override fun stateAt(version: AggregateInstanceVersion): Mono<S> {
+
+            fun applyEvents(state: S?, events: List<PersistedEvent<E>>): S? {
+                return events.fold(state) { acc, evt ->
+                    if(acc != null) aggregateType.blueprint.eventHandler(acc, evt.rawEvent) else aggregateType.blueprint.edenEventHandler(evt.rawEvent)
+                }
+            }
+
+            return recoverSnapshot().flatMap { snapshot ->
+                when {
+                    snapshot.state == null || snapshot.version > version ->
+                        recoverEvents(-1, version)
+                            .collectList()
+                            .switchIfEmpty(Mono.just(emptyList<PersistedEvent<E>>()))
+                            .flatMap {
+                                when {
+                                    it.isEmpty() -> Mono.empty()
+                                    it.first().sequenceNumber == 0L ->
+                                        when {
+                                            it.last().sequenceNumber < version -> Mono.empty()
+                                            else -> Mono.just(applyEvents(null, it)) // Don't pass any snapshot here because we need to apply events from eden state
+                                        }
+                                    else -> Mono.error(EventHistoryCorrupted(aggregateType.blueprint.name, aggregateId.value))
+                                }
+                            }
+                    snapshot.version < version ->
+                        recoverEvents(snapshot.version, version)
+                            .collectList()
+                            .switchIfEmpty(Mono.just(emptyList<PersistedEvent<E>>()))
+                            .flatMap {
+                                when {
+                                    it.isEmpty() -> Mono.empty()
+                                    it.last().sequenceNumber < version -> Mono.empty()
+                                    else -> Mono.just(applyEvents(snapshot.state, it))
+                                }
+                            }
+                    else -> Mono.just(snapshot.state) // If we get here then snapshot version == requested version, so we can just return the snapshot state
+                }
+            }
         }
 
         override fun handleCommandEnvelope(commandEnvelope: CommandEnvelope<C>): Mono<CommandHandlingResult<C, E, S>> {
@@ -82,9 +124,9 @@ class EventSourcedDomainModel(
                 .doOnError { reportingContext.finishedRecoveringSnapshot(it) }
         }
 
-        private fun recoverEvents(afterSequenceNumber: Long): Flux<PersistedEvent<E>> {
+        private fun recoverEvents(afterSequenceNumber: Long, toSequenceNumber: Long? = null): Flux<PersistedEvent<E>> {
             reportingContext.startedRecoveringPersistedEvents()
-            return backend.loadEvents(aggregateType, aggregateId, afterSequenceNumber)
+            return backend.loadEvents(aggregateType, aggregateId, afterSequenceNumber, toSequenceNumber)
                 .doOnComplete { reportingContext.finishedRecoveringPersistedEvents() }
                 .doOnError { reportingContext.finishedRecoveringPersistedEvents(it) }
         }
@@ -204,17 +246,23 @@ data class RecoverableAggregate<C: DomainCommand, E: DomainEvent, S: AggregateSt
     val recoveredSnapshot: Snapshot<S>,
     val recoveredVersion: Long = recoveredSnapshot.version,
     val causationIdHistory: List<CausationId> = recoveredSnapshot.causationIdHistory,
-    val recoveredState: S? = recoveredSnapshot.state
+    val recoveredState: S? = recoveredSnapshot.state,
+    val allStates: Map<Long, S> = recoveredSnapshot.state?.let { mapOf(recoveredSnapshot.version to it) } ?: emptyMap()
 ) {
     val isNew = eventHistory.isEmpty()
 
-    fun apply(evt: PersistedEvent<E>) = copy(
-        recoveredVersion = evt.sequenceNumber,
-        eventHistory = eventHistory + evt,
-        causationIdHistory = causationIdHistory + evt.causationId,
-        recoveredState = if(recoveredState != null) aggregateType.blueprint.eventHandler(recoveredState, evt.rawEvent) else aggregateType.blueprint.edenEventHandler(evt.rawEvent),
-        recoveredSnapshot = maybeCreateSnapshot() ?: recoveredSnapshot
-    )
+    fun apply(evt: PersistedEvent<E>): RecoverableAggregate<C,E,S> {
+        val newState = if(recoveredState != null) aggregateType.blueprint.eventHandler(recoveredState, evt.rawEvent) else aggregateType.blueprint.edenEventHandler(evt.rawEvent)
+        val newVersion = evt.sequenceNumber
+        return copy(
+            recoveredVersion = newVersion,
+            eventHistory =  if(eventHistory.size < snapshotThreshold) eventHistory + evt else listOf(evt),
+            causationIdHistory = causationIdHistory + evt.causationId,
+            recoveredState = newState,
+            recoveredSnapshot = maybeCreateSnapshot() ?: recoveredSnapshot,
+            allStates = allStates + (newVersion to newState)
+        )
+    }
 
     fun hasHandledCommandBefore(commandId: CommandId) = causationIdHistory.takeLast(commandDeduplicationThreshold).contains(CausationId(commandId.value))
 

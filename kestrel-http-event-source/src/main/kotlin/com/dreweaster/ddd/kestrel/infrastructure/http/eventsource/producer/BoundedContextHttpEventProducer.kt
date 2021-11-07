@@ -25,15 +25,27 @@ class BoundedContextHttpJsonEventProducer(val backend: Backend) {
 
     private fun fetchEvents(query: HttpJsonEventQuery): Mono<EventFeed> {
         return if(query.afterTimestamp != null) {
-            backend.fetchEventFeed<DomainEvent>(
-                query.tags,
+            query.tags?.let {
+                backend.fetchEventFeed<DomainEvent>(
+                    it,
+                    query.afterTimestamp,
+                    query.batchSize
+                )
+            } ?: backend.fetchEventFeed<DomainEvent>(
                 query.afterTimestamp,
-                query.batchSize)
+                query.batchSize
+            )
         } else {
-            backend.fetchEventFeed<DomainEvent>(
-                query.tags,
+            query.tags?.let {
+                backend.fetchEventFeed<DomainEvent>(
+                    it,
+                    query.afterOffset ?: -1L,
+                    query.batchSize
+                )
+            } ?: backend.fetchEventFeed<DomainEvent>(
                 query.afterOffset ?: -1L,
-                query.batchSize)
+                query.batchSize
+            )
         }
     }
 

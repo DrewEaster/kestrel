@@ -16,7 +16,8 @@ interface Backend {
     fun <E : DomainEvent, A: Aggregate<*,E,*>> loadEvents(
             aggregateType: A,
             aggregateId: AggregateId,
-            afterSequenceNumber: Long): Flux<PersistedEvent<E>>
+            afterSequenceNumber: Long,
+            toSequenceNumber: Long? = null): Flux<PersistedEvent<E>>
 
     fun <S : AggregateState, A: Aggregate<*,*,S>> loadSnapshot(
             aggregateType: A,
@@ -30,6 +31,10 @@ interface Backend {
             expectedSequenceNumber: Long,
             correlationId: CorrelationId? = null,
             snapshot: Snapshot<S>? = null): Flux<PersistedEvent<E>>
+
+    fun <E : DomainEvent> fetchEventFeed(afterOffset: Long, batchSize: Int): Mono<EventFeed>
+
+    fun <E : DomainEvent> fetchEventFeed(afterInstant: Instant, batchSize: Int): Mono<EventFeed>
 
     fun <E : DomainEvent> fetchEventFeed(
             tags: Set<DomainEventTag>,

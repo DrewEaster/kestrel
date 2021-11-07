@@ -34,6 +34,7 @@ object UnsupportedCommandInCurrentBehaviour : RuntimeException()
 object AggregateInstanceAlreadyExists : RuntimeException()
 object UnsupportedEventInEdenBehaviour: RuntimeException()
 object UnsupportedEventInCurrentBehaviour: RuntimeException()
+data class EventHistoryCorrupted(val aggregateType: String, val aggregateId: String): RuntimeException()
 
 data class CommandEnvelope<C: DomainCommand>(
     val command: C,
@@ -52,6 +53,8 @@ interface AggregateRoot<C: DomainCommand, E: DomainEvent, S: AggregateState> {
     infix fun handleCommand(command: C): Mono<CommandHandlingResult<C, E, S>> = handleCommandEnvelope(CommandEnvelope(command))
 
     fun currentState(): Mono<Pair<S, AggregateInstanceVersion>>
+
+    fun stateAt(version: AggregateInstanceVersion): Mono<S>
 }
 
 interface DomainModel {
