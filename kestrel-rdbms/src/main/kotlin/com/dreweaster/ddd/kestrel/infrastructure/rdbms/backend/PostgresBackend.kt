@@ -419,7 +419,7 @@ class PostgresBackend(
 
         fun toPersistedEvent() =
             PersistedEvent(
-                id = EventId(),
+                id = id,
                 aggregateId = aggregateId,
                 aggregateType = aggregateType,
                 causationId = causationId,
