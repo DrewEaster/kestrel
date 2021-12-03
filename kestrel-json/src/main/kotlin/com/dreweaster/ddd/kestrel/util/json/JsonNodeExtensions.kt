@@ -37,8 +37,8 @@ operator fun JsonNode.get(index: Int): JsonNode = array.get(index)
 
 fun ObjectNode.getNotNull(key: String): JsonNode = get(key) ?: throw NoSuchElementException("'$key' is not found")
 
-operator fun ObjectNode.plus(property: Pair<String, *>): ObjectNode = set(property.first, property.second.toJsonNode()).obj
-operator fun ObjectNode.minus(propertyName: String): ObjectNode = without(propertyName).obj
+operator fun ObjectNode.plus(property: Pair<String, *>): ObjectNode = set<JsonNode>(property.first, property.second.toJsonNode()).obj
+operator fun ObjectNode.minus(propertyName: String): ObjectNode = without<JsonNode>(propertyName).obj
 
 internal fun Any?.toJsonNode(): JsonNode {
     if (this == null)
@@ -58,7 +58,7 @@ internal fun Any?.toJsonNode(): JsonNode {
 private fun _jsonObject(values: Iterator<Pair<String, *>>): ObjectNode {
     val obj = _objectMapper.createObjectNode()
     for ((key, value) in values) {
-        obj.set(key, value.toJsonNode())
+        obj.set<JsonNode>(key, value.toJsonNode())
     }
     return obj
 }
@@ -84,5 +84,5 @@ fun jsonArray(values: Sequence<*>) = _jsonArray(values.iterator())
 fun Iterable<*>.toJsonArray() = jsonArray(this)
 fun Sequence<*>.toJsonArray() = jsonArray(this)
 
-fun ObjectNode.shallowCopy(): ObjectNode = _objectMapper.createObjectNode().apply { this@shallowCopy.fields().forEach { set(it.key, it.value) } }
+fun ObjectNode.shallowCopy(): ObjectNode = _objectMapper.createObjectNode().apply { this@shallowCopy.fields().forEach { set<JsonNode>(it.key, it.value) } }
 fun ArrayNode.shallowCopy(): ArrayNode = _objectMapper.createArrayNode().apply { addAll(this@shallowCopy) }
