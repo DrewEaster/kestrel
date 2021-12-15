@@ -44,7 +44,10 @@ class EventSourcedDomainModel(
             private val reportingContext: ReportingContext<C,E,S>) : AggregateRoot<C, E, S> {
 
         override fun currentState(): Mono<Pair<S, AggregateInstanceVersion>> {
-            return recoverAggregate().map { it.recoveredState?.let { state -> state to it.recoveredVersion } }
+            return recoverAggregate().flatMap {
+                if (it.recoveredState == null) Mono.empty()
+                else Mono.just(it.recoveredState to it.recoveredVersion)
+            }
         }
 
         override fun stateAt(version: AggregateInstanceVersion): Mono<S> {
