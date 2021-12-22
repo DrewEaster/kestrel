@@ -23,10 +23,13 @@ sealed class CommandHandlingResult<C: DomainCommand, E: DomainEvent, S: Aggregat
     abstract val command: CommandEnvelope<C>
     abstract val currentState: S?
 }
+
 data class SuccessResult<C: DomainCommand, E: DomainEvent, S: AggregateState> (override val aggregateId: AggregateId, override val aggregateType: Aggregate<C,E,S>, override val command: CommandEnvelope<C>, override val currentState: S?, val generatedEvents: List<E>, val deduplicated: Boolean = false) : CommandHandlingResult<C,E,S>(aggregateId, aggregateType)
 data class RejectionResult<C: DomainCommand, E: DomainEvent, S: AggregateState>(override val aggregateId: AggregateId, override val aggregateType: Aggregate<C,E,S>,override val command: CommandEnvelope<C>, override val currentState: S?, val error: Throwable, val deduplicated: Boolean = false) : CommandHandlingResult<C,E,S>(aggregateId, aggregateType)
 data class ConcurrentModificationResult<C: DomainCommand, E: DomainEvent, S: AggregateState>(override val aggregateId: AggregateId, override val aggregateType: Aggregate<C,E,S>,override val command: CommandEnvelope<C>, override val currentState: S?) : CommandHandlingResult<C,E,S>(aggregateId, aggregateType)
 data class UnexpectedExceptionResult<C: DomainCommand, E: DomainEvent, S: AggregateState>(override val aggregateId: AggregateId, override val aggregateType: Aggregate<C,E,S>,override val command: CommandEnvelope<C>, override val currentState: S?, val ex: Throwable): CommandHandlingResult<C,E,S>(aggregateId, aggregateType)
+
+fun <C: DomainCommand, E: DomainEvent, S: AggregateState> CommandHandlingResult<C,E,S>.deduplicated(): Boolean = this is SuccessResult && this.deduplicated
 
 // General errors
 object UnsupportedCommandInEdenBehaviour : RuntimeException()

@@ -24,6 +24,10 @@ open class InMemoryBackend : Backend {
 
     private var snapshots: Map<AggregateId, PersistedSnapshot<*,*,*>> = emptyMap()
 
+    fun countAllEvents(): Int {
+        return events.size
+    }
+
     fun clear() {
         clearEvents()
         clearSnapshots()

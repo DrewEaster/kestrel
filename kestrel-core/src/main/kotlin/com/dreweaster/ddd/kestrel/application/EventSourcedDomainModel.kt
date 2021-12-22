@@ -95,7 +95,13 @@ class EventSourcedDomainModel(
             reportingContext.startedHandling(commandEnvelope)
             return recoverAggregate().flatMap { recoverableAggregate ->
                 applyCommand(commandEnvelope, recoverableAggregate)
-                    .flatMap { if(commandEnvelope.dryRun) Mono.just(it.second) else persistEvents(it.first, it.second) }
+                    .flatMap {
+                        when {
+                            commandEnvelope.dryRun -> Mono.just(it.second)
+                            it.second.deduplicated() -> Mono.just(it.second)
+                            else -> persistEvents(it.first, it.second)
+                        }
+                    }
                     .onErrorResume(errorHandler(commandEnvelope, recoverableAggregate))
             }.onErrorResume { Mono.just(UnexpectedExceptionResult(aggregateId, aggregateType, commandEnvelope, null, it))
             }.doOnSuccess { result -> reportingContext.finishedHandling(result) }
@@ -248,7 +254,7 @@ data class RecoverableAggregate<C: DomainCommand, E: DomainEvent, S: AggregateSt
     val eventHistory: List<PersistedEvent<E>> = emptyList(),
     val recoveredSnapshot: Snapshot<S>,
     val recoveredVersion: Long = recoveredSnapshot.version,
-    val causationIdHistory: List<CausationId> = recoveredSnapshot.causationIdHistory,
+    val causationIdHistory: LinkedHashSet<CausationId> = linkedSetOf<CausationId>().apply { addAll(recoveredSnapshot.causationIdHistory) },
     val recoveredState: S? = recoveredSnapshot.state,
     val allStates: Map<Long, S> = recoveredSnapshot.state?.let { mapOf(recoveredSnapshot.version to it) } ?: emptyMap()
 ) {
@@ -260,14 +266,15 @@ data class RecoverableAggregate<C: DomainCommand, E: DomainEvent, S: AggregateSt
         return copy(
             recoveredVersion = newVersion,
             eventHistory =  if(eventHistory.size < snapshotThreshold) eventHistory + evt else listOf(evt),
-            causationIdHistory = causationIdHistory + evt.causationId,
+            causationIdHistory = (causationIdHistory + evt.causationId) as LinkedHashSet<CausationId>,
             recoveredState = newState,
             recoveredSnapshot = maybeCreateSnapshot() ?: recoveredSnapshot,
             allStates = allStates + (newVersion to newState)
         )
     }
 
-    fun hasHandledCommandBefore(commandId: CommandId) = causationIdHistory.takeLast(commandDeduplicationThreshold).contains(CausationId(commandId.value))
+    fun hasHandledCommandBefore(commandId: CommandId) =
+        causationIdHistory.toList().takeLast(commandDeduplicationThreshold).contains(CausationId(commandId.value))
 
     // Create snapshot based on aggregate as it was recovered, not based on its state post command handling
     fun maybeCreateSnapshot(): Snapshot<S>? {
@@ -275,7 +282,7 @@ data class RecoverableAggregate<C: DomainCommand, E: DomainEvent, S: AggregateSt
             return Snapshot(
                 state = recoveredState,
                 version = recoveredVersion,
-                causationIdHistory = causationIdHistory.takeLast(commandDeduplicationThreshold))
+                causationIdHistory = causationIdHistory.toList().takeLast(commandDeduplicationThreshold))
         } else null
     }
 }

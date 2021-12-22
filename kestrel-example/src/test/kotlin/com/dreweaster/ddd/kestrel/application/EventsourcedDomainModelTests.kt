@@ -97,12 +97,15 @@ class EventsourcedDomainModelTests : WordSpec() {
                 val firstResult = user.handleCommandEnvelope(CommandEnvelope(Login(password = "wrongpassword"), CommandId("command-id-5"))).block()
                 val eventsGeneratedWhenCommandFirstHandled = (firstResult as SuccessResult).generatedEvents
 
+                val existingDomainEventCount = backend.countAllEvents()
+
                 // When
                 val result = user.handleCommandEnvelope(CommandEnvelope(Login(password = "wrongpassword"), CommandId("command-id-5"))).block()
 
                 // Then
                 (result as SuccessResult).generatedEvents shouldBe eventsGeneratedWhenCommandFirstHandled
                 result.deduplicated shouldBe true
+                backend.countAllEvents() shouldBe existingDomainEventCount // ensure no events were persisted
             }
 
             "propagate error when a command is explicitly rejected in its current behaviour" {
