@@ -1,8 +1,8 @@
 package com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json
 
-import com.dreweaster.ddd.kestrel.domain.Persistable
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
+import com.dreweaster.ddd.kestrel.domain.Persistable
 import com.dreweaster.ddd.kestrel.util.json.*
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
@@ -11,13 +11,13 @@ import io.kotest.matchers.shouldBe
 
 class JsonMappingContextTests : FeatureSpec() {
 
-    val objectMapper = ObjectMapper()
+    private val objectMapper = ObjectMapper()
 
     init {
         feature("A JsonMappingContext can deserialise different versions of conceptual aggregate data with a complex migration history") {
 
             val mappers: List<JsonMapper<Persistable>> =
-                    listOf(EventWithComplexMigrationHistoryMapper()) as List<JsonMapper<Persistable>>
+                listOf(EventWithComplexMigrationHistoryMapper())
 
             val context = JsonMappingContext(mappers)
 
