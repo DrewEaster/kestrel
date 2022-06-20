@@ -1,30 +1,29 @@
 package com.dreweaster.ddd.kestrel.infrastructure.driven.backend.mapper.json
 
-import com.dreweaster.ddd.kestrel.application.PersistableMappingContext
 import com.dreweaster.ddd.kestrel.application.MappingException
+import com.dreweaster.ddd.kestrel.application.PersistableMappingContext
 import com.dreweaster.ddd.kestrel.application.PersistableSerialisationResult
 import com.dreweaster.ddd.kestrel.application.SerialisationContentType
 import com.dreweaster.ddd.kestrel.domain.Persistable
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
 import java.io.IOException
-import kotlin.reflect.KClass
 
-interface JsonMapperBuilder<Data : Persistable> {
+interface JsonMapperBuilder<in Data : Persistable> {
 
     fun migrateFormat(migration: ((ObjectNode) -> ObjectNode)): JsonMapperBuilder<Data>
 
     fun migrateClassName(className: String): JsonMapperBuilder<Data>
 
-    fun mappingFunctions(serialiseFunction: ((Data) ->  ObjectNode), deserialiseFunction: ((ObjectNode) -> Data))
+    fun mappingFunctions(serialiseFunction: ((@UnsafeVariance Data) -> ObjectNode), deserialiseFunction: ((ObjectNode) -> Data))
 }
 
-interface JsonMapperBuilderFactory<Data : Persistable> {
+interface JsonMapperBuilderFactory<in Data : Persistable> {
 
     fun create(initialClassName: String): JsonMapperBuilder<Data>
 }
 
-interface JsonMapper<Data : Persistable> {
+interface JsonMapper<out Data : Persistable> {
 
     fun configure(factory: JsonMapperBuilderFactory<Data>)
 }
