@@ -58,7 +58,7 @@ data class PersistedEvent<E : DomainEvent>(
         val aggregateId: AggregateId,
         val causationId: CausationId,
         val correlationId: CorrelationId?,
-        val eventType: KClass<E>,
+        val eventType: KClass<out E>,
         val eventVersion: Int,
         val rawEvent: E,
         val timestamp: Instant,

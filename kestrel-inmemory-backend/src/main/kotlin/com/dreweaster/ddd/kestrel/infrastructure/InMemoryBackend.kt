@@ -76,7 +76,7 @@ open class InMemoryBackend : Backend {
                     aggregateId,
                     causationId,
                     correlationId,
-                    e::class as KClass<E>,
+                    e::class,
                     1,
                     e,
                     Instant.now(),
