@@ -39,7 +39,7 @@
         <reactor.version>3.4.4</reactor.version>
         <reactor.netty.version>1.0.5</reactor.netty.version>
         <r2dbc.version>Arabba-SR2</r2dbc.version>
-        <jackson.version>2.12.3</jackson.version>
+        <jackson.version>2.13.4.1</jackson.version>
         <kotest.version>4.3.1</kotest.version>
     </properties>
 
