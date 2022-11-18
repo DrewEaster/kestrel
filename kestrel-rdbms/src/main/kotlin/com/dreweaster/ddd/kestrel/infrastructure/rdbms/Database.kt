@@ -1,5 +1,6 @@
 package com.dreweaster.ddd.kestrel.infrastructure.rdbms
 
+import com.fasterxml.jackson.databind.JsonNode
 import reactor.core.publisher.Flux
 import java.math.BigDecimal
 import java.time.*
@@ -21,6 +22,7 @@ interface ResultColumn {
     val instant: Instant
     val uuid: UUID
     val stringArray: Array<String>
+    val json: JsonNode
 
     val stringOrNull: String?
     val intOrNull: Int?
@@ -35,6 +37,7 @@ interface ResultColumn {
     val zonedDateTimeOrNull: ZonedDateTime?
     val instantOrNull: Instant?
     val uuidOrNull: UUID?
+    val jsonOrNull: JsonNode?
 }
 
 interface ResultRow {

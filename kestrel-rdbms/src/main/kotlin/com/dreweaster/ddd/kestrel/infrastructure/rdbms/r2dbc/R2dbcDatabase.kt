@@ -1,8 +1,11 @@
 package com.dreweaster.ddd.kestrel.infrastructure.rdbms.r2dbc
 
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.*
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.ObjectMapper
 import io.r2dbc.client.Handle
 import io.r2dbc.client.R2dbc
+import io.r2dbc.postgresql.codec.Json
 import io.r2dbc.spi.Row
 import reactor.core.publisher.Flux
 import java.math.BigDecimal
@@ -23,6 +26,8 @@ class R2dbcDatabase(val r2dbc: R2dbc): Database {
     }
 }
 
+private val objectMapper = ObjectMapper()
+
 class R2dbcResultColumn(columnName: String, row: Row): ResultColumn {
 
     override val string: String by lazy { checkNotNull(row.get(columnName, java.lang.String::class.java)).toString() }
@@ -39,12 +44,12 @@ class R2dbcResultColumn(columnName: String, row: Row): ResultColumn {
     override val instant: Instant by lazy { zonedDateTime.toInstant() }
     override val uuid: UUID by lazy { checkNotNull(row.get(columnName, UUID::class.java)) }
     override val stringArray: Array<String> by lazy { row.get(columnName, Array<String>::class.java) ?: emptyArray() }
-    override val stringOrNull: String? by lazy { row.get(columnName, java.lang.String::class.java)?.let { it.toString() } }
-    override val intOrNull: Int? by lazy { row.get(columnName, java.lang.Integer::class.java)?.let { it.toInt() } }
-    override val longOrNull: Long? by lazy { row.get(columnName, java.lang.Long::class.java)?.let { it.toLong() } }
-    override val doubleOrNull: Double? by lazy { row.get(columnName, java.lang.Double::class.java)?.let { it.toDouble() } }
-    override val floatOrNull: Float? by lazy { row.get(columnName, java.lang.Float::class.java)?.let { it.toFloat() } }
-    override val boolOrNull: Boolean? by lazy { row.get(columnName, java.lang.Boolean::class.java)?.let { it.booleanValue()  } }
+    override val stringOrNull: String? by lazy { row.get(columnName, java.lang.String::class.java)?.toString() }
+    override val intOrNull: Int? by lazy { row.get(columnName, java.lang.Integer::class.java)?.toInt() }
+    override val longOrNull: Long? by lazy { row.get(columnName, java.lang.Long::class.java)?.toLong() }
+    override val doubleOrNull: Double? by lazy { row.get(columnName, java.lang.Double::class.java)?.toDouble() }
+    override val floatOrNull: Float? by lazy { row.get(columnName, java.lang.Float::class.java)?.toFloat() }
+    override val boolOrNull: Boolean? by lazy { row.get(columnName, java.lang.Boolean::class.java)?.booleanValue() }
     override val bigDecimalOrNull: BigDecimal? by lazy { row.get(columnName, BigDecimal::class.java) ?: null }
     override val localDateOrNull: LocalDate? by lazy { row.get(columnName, LocalDate::class.java) ?: null }
     override val localTimeOrNull: LocalTime? by lazy { row.get(columnName, LocalTime::class.java) ?: null }
@@ -52,6 +57,8 @@ class R2dbcResultColumn(columnName: String, row: Row): ResultColumn {
     override val zonedDateTimeOrNull: ZonedDateTime? by lazy { row.get(columnName, ZonedDateTime::class.java) ?: null }
     override val instantOrNull: Instant? by lazy { zonedDateTimeOrNull?.toInstant() }
     override val uuidOrNull: UUID? by lazy { row.get(columnName, UUID::class.java) ?: null }
+    override val json: JsonNode by lazy { objectMapper.readTree(checkNotNull(row.get(columnName, Json::class.java)).asString()) }
+    override val jsonOrNull: JsonNode? by lazy { row.get(columnName, Json::class.java)?.let { objectMapper.readTree(it.asString()) } }
 }
 
 class R2dbcResultRow(private val row: Row): ResultRow {
@@ -131,6 +138,7 @@ class R2dbcDatabaseHandle(private val handle: Handle): DatabaseContext {
         val update = handle.createUpdate(translatedSql)
         translatedParameters.forEach { (column, value) -> when(value) {
             is NullValue -> update.bindNull(column, value.type.java)
+            is JsonNode -> update.bind(column, Json.of(objectMapper.writeValueAsString(value)))
             else -> update.bind(column, value)
         }}
         return update.execute()
