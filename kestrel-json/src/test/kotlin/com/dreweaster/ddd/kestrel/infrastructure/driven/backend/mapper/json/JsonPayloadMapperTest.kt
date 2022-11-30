@@ -24,6 +24,7 @@ class JsonEventPayloadMapperTests : FeatureSpec() {
             val payloadMapper = JsonEventPayloadMapper(gson, configurers)
 
             scenario("deserialise a version 1 payload") {
+
                 // Given
                 val eventVersion1Payload = jsonObject(
                     "firstName" to "joe",

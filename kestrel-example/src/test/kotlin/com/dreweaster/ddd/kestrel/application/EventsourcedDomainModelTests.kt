@@ -6,7 +6,7 @@ import com.dreweaster.ddd.kestrel.domain.aggregates.user.*
 import com.dreweaster.ddd.kestrel.infrastructure.InMemoryBackend
 import io.kotlintest.matchers.be
 import io.kotlintest.specs.WordSpec
-import kotlinx.coroutines.experimental.runBlocking
+import kotlinx.coroutines.runBlocking
 
 // TODO: Test Eden command and event handling
 // TODO: Determine if current approach to not supporting eden commands and events outside of edenBehaviour is actually correct feature

@@ -4,7 +4,7 @@ import com.dreweaster.ddd.kestrel.application.*
 import com.dreweaster.ddd.kestrel.domain.Aggregate
 import com.dreweaster.ddd.kestrel.domain.DomainEvent
 import com.dreweaster.ddd.kestrel.domain.DomainEventTag
-import kotlinx.coroutines.experimental.delay
+import kotlinx.coroutines.delay
 import java.time.Instant
 import java.util.*
 import kotlin.reflect.KClass

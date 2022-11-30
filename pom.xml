@@ -1,11 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
-
     <modelVersion>4.0.0</modelVersion>
-
     <groupId>com.dreweaster.ddd</groupId>
     <artifactId>kestrel</artifactId>
-    <version>0-SNAPSHOT</version>
+    <version>0.1.11-parking-SNAPSHOT</version>
     <modules>
         <module>kestrel-core</module>
         <module>kestrel-example</module>
@@ -16,33 +14,22 @@
         <module>kestrel-prometheus-metrics</module>
     </modules>
     <packaging>pom</packaging>
-
     <name>Kestrel</name>
-
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <kotlin.version>1.1.51</kotlin.version>
-        <kotlin.coroutines.version>0.19.2</kotlin.coroutines.version>
+        <kotlin.version>1.3.20</kotlin.version>
+        <kotlin.coroutines.version>1.1.1</kotlin.coroutines.version>
         <junit.version>4.12</junit.version>
         <vavr.version>0.9.1</vavr.version>
         <bintray.subject>dreweaster</bintray.subject>
         <bintray.repo>projects</bintray.repo>
         <bintray.package>kestrel</bintray.package>
     </properties>
-
     <scm>
         <url>https://github.com/DrewEaster/kestrel</url>
         <connection>scm:git:git@github.com:DrewEaster/kestrel.git</connection>
         <developerConnection>scm:git:git@github.com:DrewEaster/kestrel.git</developerConnection>
     </scm>
-
-    <distributionManagement>
-        <repository>
-            <id>bintray-dreweaster-projects</id>
-            <url>https://api.bintray.com/maven/${bintray.subject}/${bintray.repo}/${bintray.package}/;publish=1</url>
-        </repository>
-    </distributionManagement>
-
     <dependencyManagement>
         <dependencies>
             <dependency>
@@ -95,7 +82,6 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
-
     <dependencies>
         <dependency>
             <groupId>org.jetbrains.kotlin</groupId>
@@ -136,11 +122,9 @@
             <artifactId>vavr-kotlin</artifactId>
         </dependency>
     </dependencies>
-
     <build>
         <sourceDirectory>src/main/kotlin</sourceDirectory>
         <testSourceDirectory>src/test/kotlin</testSourceDirectory>
-
         <plugins>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
@@ -183,5 +167,4 @@
             </plugin>
         </plugins>
     </build>
-
 </project>

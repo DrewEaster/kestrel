@@ -4,13 +4,13 @@ import com.github.andrewoma.kwery.core.DefaultSession
 import com.github.andrewoma.kwery.core.Session
 import com.github.andrewoma.kwery.core.dialect.Dialect
 import com.github.andrewoma.kwery.core.interceptor.LoggingInterceptor
-import kotlinx.coroutines.experimental.newFixedThreadPoolContext
-import kotlinx.coroutines.experimental.run
+import kotlinx.coroutines.newFixedThreadPoolContext
+import kotlinx.coroutines.withContext
 import java.sql.Connection
 import javax.sql.DataSource
-import kotlin.coroutines.experimental.AbstractCoroutineContextElement
-import kotlin.coroutines.experimental.CoroutineContext
-import kotlin.coroutines.experimental.intrinsics.suspendCoroutineOrReturn
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.suspendCoroutine
 
 object TransactionRollbackException : RuntimeException()
 
@@ -29,13 +29,13 @@ class Database(val name: String, val dataSource: DataSource, val poolSize: Int, 
 
     suspend fun currentTransaction(): Transaction? = coroutineContext()[TransactionContext]
 
-    private suspend fun <T> newTransaction(block: suspend (Transaction) -> T): T = run(context) {
+    private suspend fun <T> newTransaction(block: suspend (Transaction) -> T): T = withContext(context) {
         val connection = context.dataSource.connection
         try {
             connection.autoCommit = false
             val transactionContext = TransactionContext(connection)
             val newContext = context + transactionContext
-            run(newContext) {
+            withContext(newContext) {
                 val response = block(transactionContext)
                 if (transactionContext.rollbackOnly) {
                     throw TransactionRollbackException
@@ -55,7 +55,7 @@ class Database(val name: String, val dataSource: DataSource, val poolSize: Int, 
     suspend fun <T> withConnection(block: suspend (Connection) -> T): T {
         val connection = coroutineContext().connection
         return if (connection == null) {
-            run(context) {
+            withContext(context) {
                 val newConnection = context.dataSource.connection
                 try {
                     block(newConnection)
@@ -77,7 +77,7 @@ interface Transaction {
     var rollbackOnly: Boolean
 }
 
-private suspend fun coroutineContext(): CoroutineContext = suspendCoroutineOrReturn { it.context }
+private suspend fun coroutineContext(): CoroutineContext = suspendCoroutine { it.context  }
 
 private class TransactionContext(val connection: Connection, override var rollbackOnly: Boolean = false) :
         AbstractCoroutineContextElement(TransactionContext), Transaction {
