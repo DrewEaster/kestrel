@@ -11,7 +11,7 @@ import com.dreweaster.ddd.kestrel.infrastructure.rdbms.DatabaseContext
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.ResultRow
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
-import reactor.core.publisher.toMono
+import reactor.kotlin.core.publisher.toMono
 import java.time.Instant
 import kotlin.reflect.KClass
 

@@ -8,7 +8,7 @@ import com.dreweaster.ddd.kestrel.infrastructure.rdbms.Database
 import com.dreweaster.ddd.kestrel.infrastructure.rdbms.ResultRow
 
 import reactor.core.publisher.Mono
-import reactor.core.publisher.toMono
+import reactor.kotlin.core.publisher.toMono
 
 class ImmediatelyConsistentUserProjection constructor(private val database: Database): ConsistentDatabaseProjection(), UserReadModel {
 
